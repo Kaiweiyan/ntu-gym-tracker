@@ -1,0 +1,7 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Local SQLite DB is generated/derived; the CSV in data/ IS committed (git scraping).
+*.db

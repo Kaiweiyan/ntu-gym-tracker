@@ -1,0 +1,46 @@
+name: scrape-occupancy
+
+# GitHub Actions cron is in UTC. Taipei = UTC+8, and all opening hours fall in
+# 00:00–14:00 UTC on the same weekday, so no day-of-week shift is needed.
+#   Mon–Fri 08:00–22:00 Taipei -> 00:00–14:00 UTC  (cron 0-13)
+#   Sat     09:00–22:00 Taipei -> 01:00–14:00 UTC  (cron 1-13)
+#   Sun     09:00–18:00 Taipei -> 01:00–10:00 UTC  (cron 1-9)
+# main.py re-checks is_open(), so cron drift never records closed-time data.
+on:
+  schedule:
+    - cron: "*/10 0-13 * * 1-5"   # Mon–Fri
+    - cron: "*/10 1-13 * * 6"     # Sat
+    - cron: "*/10 1-9 * * 0"      # Sun
+  workflow_dispatch: {}           # allow manual runs from the Actions tab
+
+permissions:
+  contents: write                 # needed to commit the data back
+
+concurrency:
+  group: scrape-occupancy
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Scrape one cycle
+        run: uv run main.py
+
+      - name: Commit new data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --staged --quiet; then
+            echo "no new data to commit (closed or unchanged)"
+          else
+            git commit -m "data: occupancy $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git pull --rebase --autostash
+            git push
+          fi
