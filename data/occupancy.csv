@@ -1,3 +1,5 @@
 venue_id,venue_name,scraped_at,current_count,optimal_count,max_capacity,source_status
 gym,健身中心,2026-06-30T00:59:10.269437+00:00,23,80,161,ok
 pool,室內游泳池,2026-06-30T00:59:10.269437+00:00,7,50,130,ok
+gym,健身中心,2026-06-30T01:49:10.464742+00:00,30,80,161,ok
+pool,室內游泳池,2026-06-30T01:49:10.464742+00:00,18,50,130,ok
