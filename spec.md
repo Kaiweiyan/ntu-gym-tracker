@@ -205,7 +205,12 @@ slots — never impute 0 into the raw data.
 
 ---
 
-## M1.y — Weather logging (Open-Meteo)
+## M1.y — Weather logging (Open-Meteo) — SUPERSEDED
+
+> **Superseded by M2.y.** Weather is no longer stored in `data/`. Because
+> Open-Meteo has a historical archive (backfillable by lat/lon + time), we don't
+> need to log it live; the dashboard shows it live instead. `weather.csv`, its
+> config path, and `storage.append_weather()` were removed.
 
 **Goal:** Record campus weather each cycle as a predictive feature for later
 forecasting. Weather is "now-or-never" external state, so it must be logged live
@@ -262,7 +267,7 @@ ephemeral-runner problem entirely. The collector now writes directly to local
   default branch), and optionally disable it in the GitHub **Actions** tab.
 - `main.py`: cycle logic extracted into reusable **`run_once()`** (used by both
   the CLI and the loop); `__main__` calls it.
-- **New `collector_loop.py`**: long-running loop that calls `run_once()` every
+- **New `collector.py`**: long-running loop that calls `run_once()` every
   `INTERVAL_MIN` (10) minutes, **aligned to wall-clock slots** (:00/:10/:20…),
   wrapping each cycle in try/except so one failure never kills the loop. Handles
   Ctrl-C cleanly. `run_once()` still skips closed hours, so closed ticks are
@@ -277,7 +282,7 @@ ephemeral-runner problem entirely. The collector now writes directly to local
 ### Three ways to run it on the workstation (pick one)
 1. **cron** (robust, simplest): `*/10 * * * * /path/scripts/run_collector.sh`.
 2. **systemd --user** (best; auto-restart, survives logout with linger).
-3. **tmux/nohup + `collector_loop.py`** (easiest to watch live).
+3. **tmux/nohup + `collector.py`** (easiest to watch live).
 
 All persist data locally; optionally `git push` the CSVs periodically as backup.
 
@@ -288,8 +293,131 @@ All persist data locally; optionally `git push` the CSVs periodically as backup.
 
 ---
 
+## M2 — Web API + dashboard (FastAPI + Jinja2 + ECharts + HTMX)
+
+**Goal:** Serve the collected data as a reusable JSON API and a server-rendered
+dashboard, deployable from the workstation behind a Cloudflare Tunnel.
+
+### Tools
+- **FastAPI** — defines the routes; auto request-validation + `/docs` (Swagger).
+- **Uvicorn** — the ASGI server that runs the app and listens on a port.
+- **Jinja2** — server-side HTML templates.
+- **pandas** — loads the CSVs and computes the aggregates (resample / groupby).
+- **ECharts** (CDN) — draws the charts in the browser (heatmap + history line).
+- **HTMX** (CDN) — auto-refreshes the live cards via HTML attributes (no JS).
+
+### Data access — `ntu_gym_tracker/data_access.py`
+Reads `data/*.csv` with pandas, **cached on file mtime** (re-reads only after the
+collector appends). Converts UTC → Asia/Taipei (weekday/hour buckets need local
+time) and keeps only `source_status == "ok"` rows. Functions:
+- `list_venues()` — distinct `{id, name}`.
+- `get_current()` — latest row per venue + `occupancy_pct` + "vs typical"
+  busyness (compares to the mean at the same weekday+hour).
+- `get_history(venue, days, granularity)` — hourly/daily resampled mean.
+- `get_heatmap(venue)` — mean per (weekday, hour) as ECharts `[hour, weekday, value]`.
+- `get_current_weather()` — latest weather row for the header.
+
+### App — `app.py` (repo root; run `uv run uvicorn app:app`)
+- JSON: `/api/venues`, `/api/current`, `/api/history`, `/api/heatmap`.
+- HTML: `/` (dashboard) and `/partials/current` (fragment HTMX refetches every 60s).
+- Mounts `static/`; templates in `templates/`.
+
+### Frontend — `templates/` + `static/style.css`
+- `base.html` (layout + ECharts/HTMX CDNs), `index.html` (current cards, venue
+  toggle, heatmap, 7-day history), `partials/current.html` (live cards fragment).
+- Charts fetch the JSON API client-side; cards use HTMX. Venue toggle re-fetches.
+
+### Implementation notes / gotchas
+- **Starlette `TemplateResponse` new signature**: must be
+  `TemplateResponse(request, name, context)` — passing `name` first made it treat
+  the context dict as the template name (`TypeError: unhashable type: 'dict'`).
+- Failures-as-rows from the collector are filtered out (`source_status == "ok"`)
+  before aggregation.
+- **History chart skips closed hours**: `get_history` drops NaN (closed) resample
+  buckets and returns `{labels, counts, day_boundaries}`; the frontend uses an
+  ECharts **category** axis (open slots only, no nightly gaps) with a dashed
+  `markLine` at each day boundary. When this shape changed from a list to a dict,
+  the route annotation had to change too (`-> dict`), else FastAPI raises
+  `ResponseValidationError`.
+- **pandas + pyright**: avoid `df[mask]` (typed `DataFrame | Series`) in favour of
+  `df.loc[mask, col]` / `.query(...)`, iterate with `zip(df[col], ...)` instead of
+  `.itertuples()` attribute access, and route pandas scalars through small
+  untyped helpers (`_to_float`, `_mean`). Result: 0 pyright errors.
+
+### Verified locally
+- Against a synthetic 14-day dataset: `/api/venues|current|history|heatmap`,
+  `/`, `/partials/current`, `/static/*`, `/docs` all return 200 and render
+  correctly (cards with busyness + weather, 92 heatmap cells, 168 history points).
+  Synthetic data removed afterwards.
+
+### To deploy on the workstation
+1. `uv sync` (picks up fastapi/uvicorn/jinja2/pandas).
+2. `uv run uvicorn app:app --host 0.0.0.0 --port 8000`.
+3. Point a Cloudflare Tunnel at `http://localhost:8000` for a public HTTPS URL.
+
+---
+
+## M2.x — Closing-time zeros + history range selector
+
+### Boundary 0 markers (revisits the "no zero-fill" rule)
+We do NOT fill every closed slot with 0 (that pollutes averages), but we DO
+record **one** count=0 row per venue at the opening AND closing ticks. Closing 0
+makes the curve return to 0 / live count reads 0 when closed; opening 0 avoids a
+stale non-zero the site sometimes shows right at open (the next tick scrapes the
+settled value).
+- `hours.py`: `is_opening_tick()` / `is_closing_tick()` — true only for the
+  10-min slot containing the day's open / close time (`SLOT_MINUTES = 10`).
+- `scraper.py`: `zero_observations(scraped_at, status)` — count=0 rows (one per
+  venue from `VENUE_ID_BY_NAME`), `status` "open"/"closed"; does not hit the site.
+- `main.py` `run_once()`: open+opening-tick → zeros; open otherwise → scrape;
+  closed+closing-tick → zeros; else skip.
+- `data_access._occupancy_ok()`: now filters `dropna(subset=["current_count"])`
+  instead of `source_status == "ok"`, so the count=0 "closed" rows are included
+  while null fetch/parse errors are still dropped.
+- Backfilled today's 22:00 (=14:00Z) closing rows once for the existing real data.
+- **Gotcha**: backfilled rows lacked microseconds while real rows have them;
+  pandas 3.0 inferred one format from row 0 and failed. Fixed with
+  `pd.to_datetime(..., format="ISO8601")` (tolerates mixed precision).
+
+### History range selector
+- Frontend `#range-toggle`: 一天/三天/七天 (hourly) and 一個月 (daily).
+- `loadHistory(venue, {days, granularity})`; `setOption(opt, true)` (notMerge) so
+  old markLines clear when switching. Day separators + day-start labels only in
+  the hourly views; daily view lets ECharts auto-thin labels and drops markLines.
+- Backend `get_history` already takes `days` + `granularity`; unchanged.
+
+### "Average day" profile chart (avg by time-of-day)
+- `data_access.get_profile(venue, days)`: floors each reading in the last `days`
+  days to its 10-min slot of the day (`local.dt.floor("10min")`), groups by the
+  `HH:MM` slot, and averages — one smooth typical-day curve aligned to the 10-min
+  cadence. Returns `{slots, counts}`.
+- `GET /api/profile?venue=&days=`.
+- Frontend: `#profile-toggle` (1/3/7/30 days) + `#profile` chart; x-axis labels
+  only on the hour (`val.endsWith(":00")`) to avoid crowding 10-min slots.
+
+---
+
+## M2.y — Live weather, layout tweak, collector rename
+
+- **Weather is live, not stored.** `data_access.get_current_weather()` now calls
+  `weather.fetch_weather()` directly with a ~10 min server-side TTL cache (serves
+  stale on a failed fetch), so page refreshes don't hammer Open-Meteo. Removed:
+  `storage.append_weather`, `WEATHER_CSV_FIELDS`, `config.WEATHER_CSV_PATH`, the
+  collector's weather fetch/append, and the `data/weather.csv` file. `data/` now
+  holds only occupancy (the prediction target); weather for training will be
+  backfilled from Open-Meteo's archive on the occupancy timestamps.
+- **Training note (open/close markers):** the boundary 0-rows carry
+  `source_status` "open"/"closed" (not "ok"), so training can exclude them with a
+  simple `source_status == "ok"` filter; the charts still include them via the
+  count-not-null filter. So the forced-0 open/close points won't pollute training.
+- **Layout:** dashboard order is now 現在人數 → 熱力圖 → 各時段平均人數 → 人數趨勢
+  (trend moved to the bottom).
+- **Rename:** `collector_loop.py` → `collector.py` (and all references: the
+  systemd unit, `main.py` docstring, this spec).
+
+---
+
 ## Next steps (not yet implemented)
-- Add light unit tests for `parser.py` using a saved HTML fixture (guards
-  against silent layout changes).
-- Observe how often the numbers actually change to infer the real update period.
-- **M2+**: data-quality report, then web/API (FastAPI) and forecasting.
+- Pre-aggregate hourly buckets if per-request CSV reads get slow at scale.
+- Add light unit tests for `parser.py` / API using fixtures.
+- **M4**: forecasting (calendar + weather + lag features).

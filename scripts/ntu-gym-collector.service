@@ -19,7 +19,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=%h/ntu-gym-tracker
-ExecStart=%h/.local/bin/uv run python collector_loop.py
+ExecStart=%h/.local/bin/uv run python collector.py
 Restart=always
 RestartSec=30
 

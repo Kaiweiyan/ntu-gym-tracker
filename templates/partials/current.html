@@ -1,0 +1,31 @@
+{# Live occupancy cards. Rendered standalone and swapped in by HTMX every 60s. #}
+{% if weather %}
+<p class="weather">
+  目前天氣 {{ weather.temperature_c }}°C
+  (體感 {{ weather.apparent_temperature_c }}°C)
+  · 降雨 {{ weather.precipitation_mm }}mm
+  <span class="muted">更新於 {{ weather.local_time }}</span>
+</p>
+{% endif %}
+
+<div class="cards">
+  {% for v in venues %}
+  <div class="card busyness-{{ v.busyness }}">
+    <div class="card-name">{{ v.venue_name }}</div>
+    <div class="card-count">{{ v.current_count }}<span class="unit"> 人</span></div>
+    {% if v.occupancy_pct is not none %}
+      <div class="card-pct">{{ v.occupancy_pct }}% 滿載 (上限 {{ v.max_capacity }})</div>
+    {% endif %}
+    <div class="card-busy">
+      {% if v.busyness == "quiet" %}🟢 比平常空
+      {% elif v.busyness == "normal" %}🟡 跟平常差不多
+      {% elif v.busyness == "busy" %}🔴 比平常擁擠
+      {% else %}— {% endif %}
+      {% if v.typical_count is not none %}<span class="muted">(此時段平均 {{ v.typical_count }})</span>{% endif %}
+    </div>
+    <div class="card-time muted">更新於 {{ v.local_time }}</div>
+  </div>
+  {% else %}
+  <p class="muted">目前沒有資料（可能尚未開始收集，或現在休館）。</p>
+  {% endfor %}
+</div>

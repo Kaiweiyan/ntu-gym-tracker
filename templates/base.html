@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}NTU Gym Tracker{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <!-- ECharts: draws the charts in the browser -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <!-- HTMX: lets HTML attributes fetch/refresh fragments without writing JS -->
+  <script src="https://unpkg.com/htmx.org@2"></script>
+</head>
+<body>
+  <header>
+    <h1>NTU Gym Tracker</h1>
+    <p class="sub">台大健身中心・游泳池 即時人數與歷史趨勢</p>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer>
+    <p>資料每 10 分鐘更新・僅顯示開放時段</p>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

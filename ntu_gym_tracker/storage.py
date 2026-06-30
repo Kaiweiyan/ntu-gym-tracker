@@ -11,8 +11,8 @@ import csv
 from collections.abc import Iterable
 from pathlib import Path
 
-from .config import CSV_PATH, WEATHER_CSV_PATH
-from .models import Observation, WeatherObservation
+from .config import CSV_PATH
+from .models import Observation
 
 CSV_FIELDS = [
     "venue_id",
@@ -21,18 +21,6 @@ CSV_FIELDS = [
     "current_count",
     "optimal_count",
     "max_capacity",
-    "source_status",
-]
-
-WEATHER_CSV_FIELDS = [
-    "scraped_at",
-    "observed_at",
-    "temperature_c",
-    "apparent_temperature_c",
-    "relative_humidity",
-    "precipitation_mm",
-    "weather_code",
-    "wind_speed_kmh",
     "source_status",
 ]
 
@@ -67,26 +55,3 @@ def append_observations(observations: Iterable[Observation], path: Path = CSV_PA
                 }
             )
     return len(observations)
-
-
-def append_weather(weather: WeatherObservation, path: Path = WEATHER_CSV_PATH) -> None:
-    """Append one weather observation to the weather CSV (header if file is new)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    is_new = not path.exists()
-    with path.open("a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=WEATHER_CSV_FIELDS)
-        if is_new:
-            writer.writeheader()
-        writer.writerow(
-            {
-                "scraped_at": weather.scraped_at,
-                "observed_at": _blank(weather.observed_at),
-                "temperature_c": _blank(weather.temperature_c),
-                "apparent_temperature_c": _blank(weather.apparent_temperature_c),
-                "relative_humidity": _blank(weather.relative_humidity),
-                "precipitation_mm": _blank(weather.precipitation_mm),
-                "weather_code": _blank(weather.weather_code),
-                "wind_speed_kmh": _blank(weather.wind_speed_kmh),
-                "source_status": weather.source_status,
-            }
-        )

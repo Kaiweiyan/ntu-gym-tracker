@@ -5,10 +5,10 @@ Runs one scrape cycle every INTERVAL_MIN minutes, aligned to the wall clock
 are cheap no-ops. Each cycle is wrapped in try/except so a single failure never
 kills the loop.
 
-Data persists directly to data/*.csv on the workstation's disk — no git-scraping
-needed. Run this under tmux / nohup / systemd so it survives logout:
+Data persists directly to data/occupancy.csv on the workstation's disk — no
+git-scraping needed. Run this under tmux / nohup / systemd so it survives logout:
 
-    uv run python collector_loop.py
+    uv run python collector.py
 
 Stop with Ctrl-C (or stop the systemd service).
 """

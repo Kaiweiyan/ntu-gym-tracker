@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import httpx
 
-from .config import REQUEST_TIMEOUT_SECONDS, SOURCE_URL, USER_AGENT
+from .config import REQUEST_TIMEOUT_SECONDS, SOURCE_URL, USER_AGENT, VENUE_ID_BY_NAME
 from .models import Observation
 from .parser import parse_observations
 
@@ -68,3 +68,25 @@ def scrape(scraped_at: str | None = None) -> list[Observation]:
                 source_status=f"parse_error: {exc}",
             )
         ]
+
+
+def zero_observations(scraped_at: str, status: str) -> list[Observation]:
+    """One count=0 row per known venue, marking an open/close boundary.
+
+    Used at the opening tick (the site can show a stale non-zero right at open)
+    and the closing tick (curve returns to 0). `status` is "open"/"closed" for
+    provenance; aggregation includes these rows because the count is non-null.
+    We don't hit the site for boundary markers.
+    """
+    return [
+        Observation(
+            venue_id=venue_id,
+            venue_name=venue_name,
+            scraped_at=scraped_at,
+            current_count=0,
+            optimal_count=None,
+            max_capacity=None,
+            source_status=status,
+        )
+        for venue_name, venue_id in VENUE_ID_BY_NAME.items()
+    ]

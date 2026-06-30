@@ -36,12 +36,10 @@ OPEN_METEO_CURRENT_FIELDS = (
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-# Canonical append-only stores, committed to the repo by the GitHub Action
-# ("git scraping"). Human-readable, clean diffs, easy to load into pandas/SQLite.
-# Occupancy is long-format (one row per venue); weather is one row per cycle
-# (campus-wide), joined to occupancy on `scraped_at`.
+# Occupancy is long-format (one row per venue). Weather is NOT stored — it's
+# shown live on the dashboard and can be backfilled from Open-Meteo's archive
+# for training.
 CSV_PATH = _DATA_DIR / "occupancy.csv"
-WEATHER_CSV_PATH = _DATA_DIR / "weather.csv"
 
 # SQLite database file (one file = whole DB). Kept for later local analysis;
 # the scheduled collector writes CSV, not this.

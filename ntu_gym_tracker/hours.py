@@ -30,6 +30,9 @@ _HOURS: dict[int, tuple[time, time]] = {
 }
 
 
+SLOT_MINUTES = 10  # collector cadence
+
+
 def now_taipei() -> datetime:
     return datetime.now(TAIPEI)
 
@@ -39,3 +42,34 @@ def is_open(dt: datetime | None = None) -> bool:
     dt = dt or now_taipei()
     open_t, close_t = _HOURS[dt.weekday()]
     return open_t <= dt.time() < close_t
+
+
+def _slot(dt: datetime) -> tuple[int, int]:
+    return (dt.hour, dt.minute // SLOT_MINUTES * SLOT_MINUTES)
+
+
+def is_opening_tick(dt: datetime | None = None) -> bool:
+    """True for the single ~10-min tick at opening time.
+
+    The site can show a stale non-zero right at open, so the collector forces the
+    first open slot to count=0; the next tick scrapes the settled real value.
+    """
+    dt = dt or now_taipei()
+    open_t, _ = _HOURS[dt.weekday()]
+    return _slot(dt) == _slot_of_time(open_t)
+
+
+def is_closing_tick(dt: datetime | None = None) -> bool:
+    """True for the single ~10-min tick at closing time.
+
+    The venue is already "closed" at the exact close time, so this lets the
+    collector record one count=0 row right at close (curve returns to 0) instead
+    of just skipping. Only the first slot at/after the close time qualifies.
+    """
+    dt = dt or now_taipei()
+    _, close_t = _HOURS[dt.weekday()]
+    return _slot(dt) == _slot_of_time(close_t)
+
+
+def _slot_of_time(t: time) -> tuple[int, int]:
+    return (t.hour, t.minute // SLOT_MINUTES * SLOT_MINUTES)
