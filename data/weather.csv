@@ -1,0 +1,2 @@
+scraped_at,observed_at,temperature_c,apparent_temperature_c,relative_humidity,precipitation_mm,weather_code,wind_speed_kmh,source_status
+2026-06-30T00:59:10.269437+00:00,2026-06-30T08:45,30.8,36.2,66,0.0,3,3.7,ok
