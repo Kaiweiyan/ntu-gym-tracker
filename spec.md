@@ -135,7 +135,12 @@ stored 2 observation(s):
 
 ---
 
-## M1.x — Scheduled collection (GitHub Actions + git scraping)
+## M1.x — Scheduled collection (GitHub Actions + git scraping) — SUPERSEDED
+
+> **Superseded by M1.z.** We moved collection to an always-on university
+> workstation, so the ephemeral-runner workarounds below no longer apply and the
+> workflow file was removed. Kept for history / as a possible cloud fallback
+> (restore `.github/workflows/scrape.yml` from commit `3eea426`).
 
 **Goal:** Run the collector automatically every 10 min during opening hours and
 accumulate data permanently, with zero external services.
@@ -242,6 +247,44 @@ relative_humidity, precipitation_mm, weather_code, wind_speed_kmh, source_status
 - One cycle wrote `occupancy.csv` (2 rows) and `weather.csv` (1 row) with the
   **same `scraped_at`**; weather parsed: 26.9°C / feels 33.3°C / 90% RH / 0mm /
   code 3 / 1.8 km/h.
+
+---
+
+## M1.z — Deployment moved to an always-on workstation
+
+**Why:** A university workstation can run 24/7 with persistent disk, removing the
+ephemeral-runner problem entirely. The collector now writes directly to local
+`data/*.csv` (which persist) — no git-scraping commit-back needed.
+
+### Changes
+- **Removed** `.github/workflows/scrape.yml` (the cloud schedule). To fully stop
+  the already-pushed Action: commit the deletion + push (removes it from the
+  default branch), and optionally disable it in the GitHub **Actions** tab.
+- `main.py`: cycle logic extracted into reusable **`run_once()`** (used by both
+  the CLI and the loop); `__main__` calls it.
+- **New `collector_loop.py`**: long-running loop that calls `run_once()` every
+  `INTERVAL_MIN` (10) minutes, **aligned to wall-clock slots** (:00/:10/:20…),
+  wrapping each cycle in try/except so one failure never kills the loop. Handles
+  Ctrl-C cleanly. `run_once()` still skips closed hours, so closed ticks are
+  cheap no-ops.
+- **New `scripts/run_collector.sh`**: cron wrapper (one cycle), sets PATH for
+  cron's minimal shell, logs to `logs/collector.log`.
+- **New `scripts/ntu-gym-collector.service`**: `systemd --user` unit (auto-
+  restart + start on boot via `loginctl enable-linger`).
+- `.gitignore`: added `logs/` and `*.log`. CSVs in `data/` remain trackable so
+  they can be pushed as an off-machine backup.
+
+### Three ways to run it on the workstation (pick one)
+1. **cron** (robust, simplest): `*/10 * * * * /path/scripts/run_collector.sh`.
+2. **systemd --user** (best; auto-restart, survives logout with linger).
+3. **tmux/nohup + `collector_loop.py`** (easiest to watch live).
+
+All persist data locally; optionally `git push` the CSVs periodically as backup.
+
+### Verified locally
+- `run_once()` reused by both entrypoints; one open-hours cycle wrote gym/pool +
+  weather correctly.
+- `seconds_until_next_slot(10)` returns a value in (0, 600].
 
 ---
 

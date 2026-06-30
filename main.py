@@ -1,9 +1,10 @@
 """Run one scrape cycle: check hours -> fetch -> parse -> append CSV -> report.
 
-Invoked on a schedule (every 10 min, only during opening hours) by the GitHub
-Action. Skips entirely while the venues are closed so we never store a
-misleading 0 for a closed venue. Always exits 0 so the scheduler does not treat
-an expected upstream outage / closed period as a crashed job.
+`run_once()` performs a single cycle and is reused both by this CLI
+(`uv run main.py`, e.g. from cron) and by `collector_loop.py` (the always-on
+workstation loop). It skips entirely while the venues are closed so we never
+store a misleading 0 for a closed venue, and never raises so a scheduler/loop is
+not killed by an expected upstream outage.
 """
 
 from ntu_gym_tracker.hours import is_open, now_taipei
@@ -12,7 +13,7 @@ from ntu_gym_tracker.storage import append_observations, append_weather
 from ntu_gym_tracker.weather import fetch_weather
 
 
-def main() -> None:
+def run_once() -> None:
     now = now_taipei()
     if not is_open(now):
         print(f"closed at {now:%Y-%m-%d %H:%M %Z} — skipping scrape")
@@ -47,4 +48,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    run_once()

@@ -1,0 +1,27 @@
+# systemd --user unit for the always-on collector loop (best if available).
+#
+# Install (no root needed if `systemd --user` works on the workstation):
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/ntu-gym-collector.service ~/.config/systemd/user/
+#   # edit WorkingDirectory + ExecStart below to your real absolute paths
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ntu-gym-collector
+#   loginctl enable-linger "$USER"   # keep it running after you log out
+#
+# Logs:    journalctl --user -u ntu-gym-collector -f
+# Stop:    systemctl --user stop ntu-gym-collector
+
+[Unit]
+Description=NTU gym/pool occupancy collector loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ntu-gym-tracker
+ExecStart=%h/.local/bin/uv run python collector_loop.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

@@ -3,5 +3,10 @@ __pycache__/
 *.py[cod]
 .venv/
 
-# Local SQLite DB is generated/derived; the CSV in data/ IS committed (git scraping).
+# Local SQLite DB is generated/derived. The CSVs in data/ are the data store and
+# may be committed as an off-machine backup (the collector runs on the workstation).
 *.db
+
+# Runtime logs
+logs/
+*.log
