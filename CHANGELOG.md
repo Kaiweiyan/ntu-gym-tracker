@@ -7,6 +7,15 @@ live in `spec.md`.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-07-01 — Mobile-friendly charts
+
+### Added
+- Emoji favicon (inline SVG; removes the `/favicon.ico` 404).
+
+### Changed
+- Mobile: line charts rotate/thin their axis labels on narrow screens, and the
+  heatmap scrolls horizontally so cells stay readable.
+
 ## [0.2.0] - 2026-07-01 — Web dashboard & API
 
 ### Added

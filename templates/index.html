@@ -16,7 +16,7 @@
     <button data-venue="{{ v.id }}" class="{% if loop.first %}active{% endif %}">{{ v.name }}</button>
     {% endfor %}
   </div>
-  <div id="heatmap" class="chart"></div>
+  <div class="chart-scroll"><div id="heatmap" class="chart"></div></div>
 </section>
 
 <section>
@@ -83,33 +83,40 @@
     const dayLabel = new Map((d.day_boundaries || []).map((idx, i) => [idx, d.day_labels[i]]));
     // notMerge=true so old markLines/labels are cleared when switching range.
     historyChart.setOption({
-      tooltip: { trigger: "axis" },
-      grid: { top: 35, left: 48, right: 20, bottom: 40 },
-      // Category axis = only the open-hour slots, evenly spaced, so closed nights
-      // are skipped instead of drawn as gaps. Labels show the date+weekday at day starts.
-      xAxis: {
-        type: "category",
-        data: d.labels,
-        axisTick: { alignWithLabel: true },
-        axisLabel: {
-          // Hourly: label only at day starts. Daily: let ECharts auto-thin.
-          interval: isHour ? ((idx) => dayLabel.has(idx)) : "auto",
-          formatter: (val, idx) => dayLabel.get(idx) ?? val.split(" ")[0],
+      baseOption: {
+        tooltip: { trigger: "axis" },
+        grid: { top: 35, left: 48, right: 20, bottom: 40 },
+        // Category axis = only the open-hour slots, evenly spaced, so closed nights
+        // are skipped instead of drawn as gaps. Labels show date+weekday at day starts.
+        xAxis: {
+          type: "category",
+          data: d.labels,
+          axisTick: { alignWithLabel: true },
+          axisLabel: {
+            // Hourly: label only at day starts. Daily: let ECharts auto-thin.
+            interval: isHour ? ((idx) => dayLabel.has(idx)) : "auto",
+            formatter: (val, idx) => dayLabel.get(idx) ?? val.split(" ")[0],
+          },
         },
+        yAxis: { type: "value", name: "人數", nameTextStyle: { align: "left" } },
+        series: [{
+          type: "line", showSymbol: false, smooth: true,
+          data: d.counts,
+          areaStyle: { opacity: 0.15 },
+          // Dashed day separators only make sense for the hourly view.
+          markLine: {
+            silent: true, symbol: "none",
+            lineStyle: { type: "dashed", color: "#c0c6cc" },
+            label: { show: false },
+            data: isHour ? d.day_boundaries.filter(i => i > 0).map(i => ({ xAxis: i })) : [],
+          },
+        }],
       },
-      yAxis: { type: "value", name: "人數", nameTextStyle: { align: "left" } },
-      series: [{
-        type: "line", showSymbol: false, smooth: true,
-        data: d.counts,
-        areaStyle: { opacity: 0.15 },
-        // Dashed day separators only make sense for the hourly view.
-        markLine: {
-          silent: true, symbol: "none",
-          lineStyle: { type: "dashed", color: "#c0c6cc" },
-          label: { show: false },
-          data: isHour ? d.day_boundaries.filter(i => i > 0).map(i => ({ xAxis: i })) : [],
-        },
-      }],
+      // Narrow screens: rotate + shrink labels and give them more room.
+      media: [{ query: { maxWidth: 600 }, option: {
+        grid: { bottom: 60 },
+        xAxis: { axisLabel: { rotate: 40, fontSize: 10 } },
+      }}],
     }, true);
   }
 
@@ -119,20 +126,30 @@
     const res = await fetch(`/api/profile?venue=${venue}&days=${days}`);
     const d = await res.json();
     profileChart.setOption({
-      tooltip: { trigger: "axis" },
-      grid: { top: 35, left: 48, right: 20, bottom: 40 },
-      xAxis: {
-        type: "category",
-        data: d.slots,
-        // Label only on the hour (:00) so the axis isn't crowded with 10-min slots.
-        axisLabel: { interval: (idx, val) => val.endsWith(":00") },
+      baseOption: {
+        tooltip: { trigger: "axis" },
+        grid: { top: 35, left: 48, right: 20, bottom: 40 },
+        xAxis: {
+          type: "category",
+          data: d.slots,
+          // Label only on the hour (:00) so the axis isn't crowded with 10-min slots.
+          axisLabel: { interval: (idx, val) => val.endsWith(":00") },
+        },
+        yAxis: { type: "value", name: "平均人數", nameTextStyle: { align: "left" } },
+        series: [{
+          type: "line", showSymbol: false, smooth: true,
+          data: d.counts,
+          areaStyle: { opacity: 0.15 },
+        }],
       },
-      yAxis: { type: "value", name: "平均人數", nameTextStyle: { align: "left" } },
-      series: [{
-        type: "line", showSymbol: false, smooth: true,
-        data: d.counts,
-        areaStyle: { opacity: 0.15 },
-      }],
+      // Narrow screens: rotate, shrink, and thin to every 2 hours.
+      media: [{ query: { maxWidth: 600 }, option: {
+        grid: { bottom: 55 },
+        xAxis: { axisLabel: {
+          rotate: 40, fontSize: 10,
+          interval: (idx, val) => val.endsWith(":00") && parseInt(val, 10) % 2 === 0,
+        }},
+      }}],
     }, true);
   }
 
