@@ -10,7 +10,7 @@
 </section>
 
 <section>
-  <h2>各時段熱門程度（星期 × 小時平均）</h2>
+  <h2>各時段熱門程度（星期 × 小時平均）<span class="venue-tag"></span></h2>
   <div class="venue-toggle" id="venue-toggle">
     {% for v in venues %}
     <button data-venue="{{ v.id }}" class="{% if loop.first %}active{% endif %}">{{ v.name }}</button>
@@ -20,7 +20,17 @@
 </section>
 
 <section>
-  <h2>各時段平均人數（最近 N 天）</h2>
+  <h2>人數預測<span class="venue-tag"></span></h2>
+  <div class="venue-toggle" id="forecast-day-toggle">
+    <button data-day="today" class="active">今天 <span class="day-date">{{ today_label }}</span></button>
+    <button data-day="tomorrow">明天 <span class="day-date">{{ tomorrow_label }}</span></button>
+  </div>
+  <div id="forecast" class="chart"></div>
+  <p class="muted">預測目前用歷史各時段平均；資料充足後會改用同星期幾的模型。</p>
+</section>
+
+<section>
+  <h2>各時段平均人數（最近 N 天）<span class="venue-tag"></span></h2>
   <div class="venue-toggle" id="profile-toggle">
     <button data-days="1">一天</button>
     <button data-days="3">三天</button>
@@ -31,7 +41,7 @@
 </section>
 
 <section>
-  <h2>人數趨勢</h2>
+  <h2>人數趨勢<span class="venue-tag"></span></h2>
   <div class="venue-toggle" id="range-toggle">
     <button data-days="1" data-gran="hour">一天</button>
     <button data-days="3" data-gran="hour">三天</button>
@@ -48,9 +58,56 @@
   const firstBtn = document.querySelector("#venue-toggle button");
   let currentVenue = firstBtn ? firstBtn.dataset.venue : "gym";
 
+  // Show the current venue name beside every venue-dependent chart heading, so
+  // it's clear which venue each chart is displaying (the selector is one place).
+  function setVenueTags(name) {
+    document.querySelectorAll(".venue-tag").forEach(el => { el.textContent = "· " + name; });
+  }
+
+  const forecastChart = echarts.init(document.getElementById("forecast"));
   const heatmapChart = echarts.init(document.getElementById("heatmap"));
   const historyChart = echarts.init(document.getElementById("history"));
   const profileChart = echarts.init(document.getElementById("profile"));
+
+  let currentForecastDay = "today";
+
+  async function loadForecast(venue, day) {
+    const res = await fetch(`/api/forecast?venue=${venue}&day=${day}`);
+    const d = await res.json();
+    const nowIdx = d.now_slot ? d.slots.indexOf(d.now_slot) : -1;
+
+    forecastChart.setOption({
+      baseOption: {
+        tooltip: { trigger: "axis" },
+        legend: { data: ["實際", "預測"], top: 0, right: 8 },
+        grid: { top: 35, left: 48, right: 20, bottom: 40 },
+        xAxis: { type: "category", data: d.slots, axisLabel: { interval: (i, v) => v.endsWith(":00") } },
+        yAxis: { type: "value", name: "人數", nameTextStyle: { align: "left" } },
+        series: [
+          {
+            name: "實際", type: "line", showSymbol: false, smooth: true,
+            data: d.actual, connectNulls: false,
+            lineStyle: { width: 2 }, areaStyle: { opacity: 0.12 },
+            markLine: nowIdx >= 0 ? {
+              silent: true, symbol: "none",
+              lineStyle: { type: "dashed", color: "#888" },
+              label: { formatter: "現在", position: "insideEndTop" },
+              data: [{ xAxis: nowIdx }],
+            } : undefined,
+          },
+          {
+            name: "預測", type: "line", showSymbol: false, smooth: true,
+            data: d.forecast, connectNulls: false,
+            lineStyle: { type: "dashed", width: 2 },
+          },
+        ],
+      },
+      media: [{ query: { maxWidth: 600 }, option: {
+        grid: { bottom: 55 },
+        xAxis: { axisLabel: { rotate: 40, fontSize: 10, interval: (i, v) => v.endsWith(":00") && parseInt(v, 10) % 2 === 0 } },
+      }}],
+    }, true);
+  }
 
   async function loadHeatmap(venue) {
     const res = await fetch(`/api/heatmap?venue=${venue}`);
@@ -154,6 +211,7 @@
   }
 
   function refresh() {
+    loadForecast(currentVenue, currentForecastDay);
     loadHeatmap(currentVenue);
     loadHistory(currentVenue, currentRange);
     loadProfile(currentVenue, currentProfileDays);
@@ -170,7 +228,11 @@
     });
   }
 
-  wireToggle("#venue-toggle", (btn) => { currentVenue = btn.dataset.venue; refresh(); });
+  wireToggle("#venue-toggle", (btn) => {
+    currentVenue = btn.dataset.venue;
+    setVenueTags(btn.textContent.trim());
+    refresh();
+  });
   wireToggle("#range-toggle", (btn) => {
     currentRange = { days: +btn.dataset.days, granularity: btn.dataset.gran };
     loadHistory(currentVenue, currentRange);  // heatmap is unaffected by range
@@ -179,12 +241,20 @@
     currentProfileDays = +btn.dataset.days;
     loadProfile(currentVenue, currentProfileDays);
   });
+  wireToggle("#forecast-day-toggle", (btn) => {
+    currentForecastDay = btn.dataset.day;
+    loadForecast(currentVenue, currentForecastDay);
+  });
 
   // Keep charts responsive to window resizing.
   window.addEventListener("resize", () => {
-    heatmapChart.resize(); historyChart.resize(); profileChart.resize();
+    forecastChart.resize(); heatmapChart.resize(); historyChart.resize(); profileChart.resize();
   });
 
+  setVenueTags(firstBtn ? firstBtn.textContent.trim() : "");
   refresh();
+  // Keep charts current as time passes (the forecast's "now" line advances and
+  // new readings arrive); the live cards already refresh via HTMX.
+  setInterval(refresh, 5 * 60 * 1000);
 </script>
 {% endblock %}

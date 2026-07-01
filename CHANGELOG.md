@@ -7,6 +7,25 @@ live in `spec.md`.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-01 — Occupancy forecast
+
+### Added
+- **Occupancy forecast** chart below the live counts (`GET /api/forecast`):
+  今天/明天 toggle (with each day's date + weekday), solid actual (open→now)
+  meeting a dashed forecast (now→close), and a "現在" marker. Baseline = historical
+  mean per 10-min slot across all days; swappable for a model with no frontend
+  change.
+- Every venue-dependent chart heading now shows the current venue name, so it's
+  clear which venue each chart displays.
+- Charts auto-refresh every 5 minutes (the forecast's "now" advances over time).
+
+### Changed
+- Dashboard order: current → heatmap → forecast → average profile → trend (the
+  venue selector now sits above the charts it controls).
+
+### Removed
+- Dead `db.py` / `DB_PATH` (the data store is CSV-only).
+
 ## [0.2.1] - 2026-07-01 — Mobile-friendly charts
 
 ### Added

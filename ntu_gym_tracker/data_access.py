@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 
 from .config import CSV_PATH
+from .hours import SLOT_MINUTES, now_taipei, open_close
 
 TAIPEI = "Asia/Taipei"  # IANA timezone name
 WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -175,6 +176,74 @@ def get_profile(venue_id: str, days: int = 7) -> dict:
     return {
         "slots": prof["slot"].tolist(),
         "counts": [round(float(c), 1) for c in prof["current_count"].tolist()],
+    }
+
+
+def _day_slots(open_t, close_t) -> list[str]:
+    """10-min slot labels 'HH:MM' from open to close inclusive."""
+    start = open_t.hour * 60 + open_t.minute
+    end = close_t.hour * 60 + close_t.minute
+    return [f"{m // 60:02d}:{m % 60:02d}" for m in range(start, end + 1, SLOT_MINUTES)]
+
+
+def _slot_means(df) -> dict[str, float]:
+    """Mean current_count per 10-min time-of-day slot, over the given rows."""
+    if df.empty:
+        return {}
+    tmp = df.copy()
+    tmp["slot"] = tmp["local"].dt.floor("10min").dt.strftime("%H:%M")
+    g = tmp.groupby("slot")["current_count"].mean().reset_index()
+    return {s: round(float(c), 1) for s, c in zip(g["slot"].tolist(), g["current_count"].tolist())}
+
+
+def get_forecast(venue_id: str, day: str = "today") -> dict:
+    """Baseline occupancy forecast for `day` ('today' | 'tomorrow'), 10-min slots.
+
+    Baseline = historical mean per time-of-day slot across ALL days (data is still
+    sparse). Later this can switch to a same-weekday mean, or a model, without any
+    frontend change. For today, `actual` holds real readings up to now and
+    `forecast` covers now→close (they meet at the current slot); for tomorrow the
+    whole day is forecast.
+    """
+    empty = {"slots": [], "actual": [], "forecast": [], "now_slot": None}
+    df = _occupancy_ok()
+    if df.empty:
+        return empty
+    df = df.loc[df["venue_id"] == venue_id]
+    if df.empty:
+        return empty
+
+    now = now_taipei()
+    target_date = now.date() if day == "today" else now.date() + timedelta(days=1)
+    slots = _day_slots(*open_close(target_date.weekday()))
+
+    baseline = _slot_means(df)  # TODO: switch to same-weekday mean once data is rich
+    now_slot = f"{now.hour:02d}:{now.minute // SLOT_MINUTES * SLOT_MINUTES:02d}"
+    actual_by_slot = (
+        _slot_means(df.loc[df["local"].dt.date == target_date]) if day == "today" else {}
+    )
+
+    actual: list[float | None] = []
+    forecast: list[float | None] = []
+    for s in slots:
+        a = actual_by_slot.get(s)
+        past_or_now = day == "today" and s <= now_slot
+        actual.append(a if (past_or_now and a is not None) else None)
+
+        if day == "tomorrow":
+            forecast.append(baseline.get(s))
+        elif s == now_slot:  # connect the dashed line to the real "now" point
+            forecast.append(a if a is not None else baseline.get(s))
+        elif s > now_slot:
+            forecast.append(baseline.get(s))
+        else:
+            forecast.append(None)
+
+    return {
+        "slots": slots,
+        "actual": actual,
+        "forecast": forecast,
+        "now_slot": now_slot if day == "today" else None,
     }
 
 

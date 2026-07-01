@@ -40,7 +40,3 @@ _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 # shown live on the dashboard and can be backfilled from Open-Meteo's archive
 # for training.
 CSV_PATH = _DATA_DIR / "occupancy.csv"
-
-# SQLite database file (one file = whole DB). Kept for later local analysis;
-# the scheduled collector writes CSV, not this.
-DB_PATH = _DATA_DIR / "occupancy.db"

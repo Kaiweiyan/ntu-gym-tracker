@@ -26,6 +26,7 @@ header .sub { margin: 4px 0 0; color: var(--muted); }
 
 section { margin: 28px 0; }
 h2 { font-size: 1.15rem; border-left: 4px solid #3b82f6; padding-left: 8px; }
+.venue-tag { font-size: 0.9rem; font-weight: 400; color: #3b82f6; margin-left: 6px; }
 
 .muted { color: var(--muted); font-size: 0.85rem; }
 .weather { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
@@ -54,6 +55,8 @@ h2 { font-size: 1.15rem; border-left: 4px solid #3b82f6; padding-left: 8px; }
   padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 0.9rem;
 }
 .venue-toggle button.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+/* Date beside 今天/明天: dimmer + smaller, readable on both white and blue. */
+.day-date { font-size: 0.82em; opacity: 0.7; }
 
 .chart { width: 100%; height: 360px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
 

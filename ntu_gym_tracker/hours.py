@@ -37,6 +37,11 @@ def now_taipei() -> datetime:
     return datetime.now(TAIPEI)
 
 
+def open_close(weekday: int) -> tuple[time, time]:
+    """(open, close) times for a weekday (Mon=0 .. Sun=6)."""
+    return _HOURS[weekday]
+
+
 def is_open(dt: datetime | None = None) -> bool:
     """True if the venues are open at `dt` (Taipei time; defaults to now)."""
     dt = dt or now_taipei()

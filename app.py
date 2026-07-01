@@ -14,12 +14,20 @@ Two kinds of routes:
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ntu_gym_tracker import data_access as data
+from ntu_gym_tracker.hours import now_taipei
+
+
+def _day_label(dt) -> str:
+    """e.g. '7/1 (三)' — for the forecast day toggle."""
+    return f"{dt.month}/{dt.day} ({data.WEEKDAY_ZH[dt.weekday()]})"
 
 app = FastAPI(title="NTU Gym Tracker")
 
@@ -54,12 +62,25 @@ def api_profile(venue: str, days: int = 7) -> dict:
     return data.get_profile(venue, days=days)
 
 
+@app.get("/api/forecast")
+def api_forecast(venue: str, day: str = "today") -> dict:
+    return data.get_forecast(venue, day=day)
+
+
 # --- HTML dashboard --------------------------------------------------------
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    venues = data.list_venues()
-    return templates.TemplateResponse(request, "index.html", {"venues": venues})
+    now = now_taipei()
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {
+            "venues": data.list_venues(),
+            "today_label": _day_label(now),
+            "tomorrow_label": _day_label(now + timedelta(days=1)),
+        },
+    )
 
 
 @app.get("/partials/current", response_class=HTMLResponse)
