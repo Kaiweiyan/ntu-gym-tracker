@@ -1,7 +1,7 @@
 [project]
 name = "ntu-gym-tracker"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Collect, visualize, and (soon) forecast occupancy of NTU's gym and pool."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

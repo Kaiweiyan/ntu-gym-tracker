@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Cron wrapper: run ONE scrape cycle. main.py skips closed hours by itself, so
+# Cron wrapper: run ONE scrape cycle. collector.py skips closed hours by itself, so
 # you can schedule this every 10 min around the clock. Add to your crontab with
 # `crontab -e`:
 #
@@ -17,4 +17,4 @@ cd "$REPO_DIR"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin:$PATH"
 
 mkdir -p logs
-uv run main.py >> logs/collector.log 2>&1
+uv run collector.py --once >> logs/collector.log 2>&1
