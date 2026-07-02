@@ -20,6 +20,7 @@ import time
 import traceback
 from datetime import datetime, timezone
 
+from ntu_gym_tracker.config import VENUE_CAPACITY
 from ntu_gym_tracker.hours import is_closing_tick, is_open, is_opening_tick, now_taipei
 from ntu_gym_tracker.scraper import scrape, utc_now_iso, zero_observations
 from ntu_gym_tracker.storage import append_observations
@@ -54,10 +55,11 @@ def run_once() -> None:
         print(f"appended {written} observation(s):")
         for o in observations:
             if o.source_status == "ok":
+                cap = VENUE_CAPACITY.get(o.venue_id, {})
                 print(
                     f"  [{o.scraped_at}] {o.venue_name} ({o.venue_id}): "
                     f"{o.current_count} now "
-                    f"(optimal {o.optimal_count}, max {o.max_capacity})"
+                    f"(optimal {cap.get('optimal_count')}, max {cap.get('max_capacity')})"
                 )
             else:
                 print(f"  [{o.scraped_at}] {o.venue_id}: {o.source_status}")

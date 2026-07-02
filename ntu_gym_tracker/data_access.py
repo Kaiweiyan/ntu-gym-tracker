@@ -18,7 +18,7 @@ from typing import Any
 
 import pandas as pd
 
-from .config import CSV_PATH
+from .config import CSV_PATH, VENUE_CAPACITY
 from .hours import SLOT_MINUTES, now_taipei, open_close
 
 TAIPEI = "Asia/Taipei"  # IANA timezone name
@@ -94,14 +94,15 @@ def get_current() -> list[dict]:
         typical = _mean(same_slot)
         count = int(row["current_count"])
         ratio = (count / typical) if typical else None
+        cap = VENUE_CAPACITY.get(row["venue_id"], {})
         out.append(
             {
                 "venue_id": row["venue_id"],
                 "venue_name": row["venue_name"],
                 "current_count": count,
-                "optimal_count": _int_or_none(row["optimal_count"]),
-                "max_capacity": _int_or_none(row["max_capacity"]),
-                "occupancy_pct": _pct(count, row["max_capacity"]),
+                "optimal_count": cap.get("optimal_count"),
+                "max_capacity": cap.get("max_capacity"),
+                "occupancy_pct": _pct(count, cap.get("max_capacity")),
                 "typical_count": typical,
                 "busyness": _busyness(ratio),
                 "scraped_at": row["scraped_at"].isoformat(),
@@ -196,14 +197,45 @@ def _slot_means(df) -> dict[str, float]:
     return {s: round(float(c), 1) for s, c in zip(g["slot"].tolist(), g["current_count"].tolist())}
 
 
+# A single missed scrape (fetch/parse failure) leaves an isolated None in
+# `actual`; bridge runs up to this many consecutive slots by interpolating
+# between the real readings on either side. Longer runs are a real outage
+# (site down, closed venue, ...) and are left as None rather than papered over.
+MAX_INTERP_GAP_SLOTS = 2
+
+
+def _fill_short_gaps(values: list[float | None]) -> list[float | None]:
+    """Linearly interpolate short runs of None that have real neighbors on both
+    sides. Leading/trailing None (no data yet, or future slots) is untouched
+    since there's no neighbor on one side to interpolate from.
+    """
+    filled = list(values)
+    i, n = 0, len(filled)
+    while i < n:
+        if filled[i] is not None:
+            i += 1
+            continue
+        j = i
+        while j < n and filled[j] is None:
+            j += 1
+        gap_len = j - i
+        if i > 0 and j < n and gap_len <= MAX_INTERP_GAP_SLOTS:
+            left, right = filled[i - 1], filled[j]
+            for k in range(gap_len):
+                filled[i + k] = round(left + (right - left) * (k + 1) / (gap_len + 1), 1)
+        i = j
+    return filled
+
+
 def get_forecast(venue_id: str, day: str = "today") -> dict:
     """Baseline occupancy forecast for `day` ('today' | 'tomorrow'), 10-min slots.
 
     Baseline = historical mean per time-of-day slot across ALL days (data is still
     sparse). Later this can switch to a same-weekday mean, or a model, without any
-    frontend change. For today, `actual` holds real readings up to now and
-    `forecast` covers now→close (they meet at the current slot); for tomorrow the
-    whole day is forecast.
+    frontend change. For today, `actual` holds real readings up to now (short
+    gaps from a missed scrape are interpolated, see `_fill_short_gaps`) and
+    `forecast` covers now→close (they meet at the current slot); for tomorrow
+    the whole day is forecast.
     """
     empty = {"slots": [], "actual": [], "forecast": [], "now_slot": None}
     df = _occupancy_ok()
@@ -241,7 +273,7 @@ def get_forecast(venue_id: str, day: str = "today") -> dict:
 
     return {
         "slots": slots,
-        "actual": actual,
+        "actual": _fill_short_gaps(actual),
         "forecast": forecast,
         "now_slot": now_slot if day == "today" else None,
     }
@@ -305,10 +337,6 @@ def get_current_weather() -> dict | None:
 # --- small helpers ---------------------------------------------------------
 # Params are intentionally untyped: pandas scalars come through as Any, which
 # keeps the type checker quiet while these guard the None/format conversions.
-
-def _int_or_none(v) -> int | None:
-    return int(v) if pd.notna(v) else None
-
 
 def _to_float(v) -> float:
     return round(float(v), 1)

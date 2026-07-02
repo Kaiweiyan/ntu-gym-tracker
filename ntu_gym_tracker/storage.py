@@ -19,8 +19,6 @@ CSV_FIELDS = [
     "venue_name",
     "scraped_at",
     "current_count",
-    "optimal_count",
-    "max_capacity",
     "source_status",
 ]
 
@@ -49,8 +47,6 @@ def append_observations(observations: Iterable[Observation], path: Path = CSV_PA
                     "venue_name": o.venue_name,
                     "scraped_at": o.scraped_at,
                     "current_count": _blank(o.current_count),
-                    "optimal_count": _blank(o.optimal_count),
-                    "max_capacity": _blank(o.max_capacity),
                     "source_status": o.source_status,
                 }
             )

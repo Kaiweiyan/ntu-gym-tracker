@@ -7,29 +7,55 @@ the outage is recorded as a gap-with-reason rather than silently lost.
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 
 import httpx
 
-from .config import REQUEST_TIMEOUT_SECONDS, SOURCE_URL, USER_AGENT, VENUE_ID_BY_NAME
+from .config import (
+    FETCH_RETRIES,
+    FETCH_RETRY_BACKOFF_SECONDS,
+    REQUEST_TIMEOUT_SECONDS,
+    SOURCE_URL,
+    USER_AGENT,
+    VENUE_ID_BY_NAME,
+)
 from .models import Observation
 from .parser import parse_observations
 
 
 def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    # Second precision is plenty for a 10-min collection cadence.
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def fetch_html(url: str = SOURCE_URL) -> str:
-    """GET the page as a polite, identifiable client. Raises on HTTP errors."""
-    resp = httpx.get(
-        url,
-        headers={"User-Agent": USER_AGENT},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-        follow_redirects=True,
-    )
-    resp.raise_for_status()
-    return resp.text
+    """GET the page as a polite, identifiable client.
+
+    Retries transient failures (timeouts, connection errors, 5xx) up to
+    `FETCH_RETRIES` times with exponential backoff — this only rescues the
+    fetch itself within the same cycle; it can't recover an occupancy value we
+    never sampled (the count is a live, time-varying number, not a resource
+    that can be re-fetched later). Raises the last error if every attempt
+    fails.
+    """
+    last_exc: httpx.HTTPError | None = None
+    for attempt in range(FETCH_RETRIES):
+        try:
+            resp = httpx.get(
+                url,
+                headers={"User-Agent": USER_AGENT},
+                timeout=REQUEST_TIMEOUT_SECONDS,
+                follow_redirects=True,
+            )
+            resp.raise_for_status()
+            return resp.text
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            if attempt < FETCH_RETRIES - 1:
+                time.sleep(FETCH_RETRY_BACKOFF_SECONDS * 2**attempt)
+    assert last_exc is not None
+    raise last_exc
 
 
 def scrape(scraped_at: str | None = None) -> list[Observation]:
@@ -48,8 +74,6 @@ def scrape(scraped_at: str | None = None) -> list[Observation]:
                 venue_name="",
                 scraped_at=scraped_at,
                 current_count=None,
-                optimal_count=None,
-                max_capacity=None,
                 source_status=f"fetch_error: {type(exc).__name__}",
             )
         ]
@@ -63,8 +87,6 @@ def scrape(scraped_at: str | None = None) -> list[Observation]:
                 venue_name="",
                 scraped_at=scraped_at,
                 current_count=None,
-                optimal_count=None,
-                max_capacity=None,
                 source_status=f"parse_error: {exc}",
             )
         ]
@@ -84,8 +106,6 @@ def zero_observations(scraped_at: str, status: str) -> list[Observation]:
             venue_name=venue_name,
             scraped_at=scraped_at,
             current_count=0,
-            optimal_count=None,
-            max_capacity=None,
             source_status=status,
         )
         for venue_name, venue_id in VENUE_ID_BY_NAME.items()

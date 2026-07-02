@@ -9,17 +9,16 @@ from dataclasses import dataclass
 class Observation:
     """A single occupancy reading for one venue at one point in time.
 
-    `current_count` / `optimal_count` / `max_capacity` are optional: when a
-    fetch or parse fails we still record a row (with `source_status` set
-    accordingly) but leave the numbers as None instead of guessing 0.
+    `current_count` is optional: when a fetch or parse fails we still record a
+    row (with `source_status` set accordingly) but leave it as None instead of
+    guessing 0. `optimal_count` / `max_capacity` are fixed per venue and live in
+    `config.VENUE_CAPACITY` instead of being carried per-row.
     """
 
     venue_id: str  # stable slug, e.g. "gym" / "pool"
     venue_name: str  # raw name from the page, e.g. "健身中心"
     scraped_at: str  # ISO-8601 UTC timestamp of when WE fetched it
     current_count: int | None
-    optimal_count: int | None
-    max_capacity: int | None
     source_status: str  # "ok" | "parse_error" | "fetch_error"
 
 

@@ -13,11 +13,24 @@ USER_AGENT = "ntu-gym-tracker/0.1 (personal project; contact: kaiweimail02@gmail
 
 REQUEST_TIMEOUT_SECONDS = 15.0
 
+# Retry transient fetch failures (timeout, connection error, 5xx) within the
+# same cycle before giving up. Backoff is exponential: base * 2**attempt.
+FETCH_RETRIES = 3
+FETCH_RETRY_BACKOFF_SECONDS = 1.0
+
 # Map the page's raw venue names to stable slugs used as `venue_id`.
 # Unknown names fall back to a slugified version of the name.
 VENUE_ID_BY_NAME: dict[str, str] = {
     "健身中心": "gym",
     "室內游泳池": "pool",
+}
+
+# optimal_count / max_capacity are fixed per venue (confirmed unchanging across
+# all scrapes so far — see spec.md M0), so they live here instead of being
+# scraped and stored on every row. Keyed by venue_id.
+VENUE_CAPACITY: dict[str, dict[str, int]] = {
+    "gym": {"optimal_count": 80, "max_capacity": 161},
+    "pool": {"optimal_count": 50, "max_capacity": 130},
 }
 
 # --- Weather (Open-Meteo: free, no API key, has historical archive too) ---

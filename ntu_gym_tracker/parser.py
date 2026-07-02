@@ -16,8 +16,9 @@ class is reused in empty blocks elsewhere on the page, so we anchor on
         <div class="CMCItem"> ... 室內游泳池 ... </div>
     </div>
 
-We locate each `.CMCItem`, read its `.IT` name, then read the three
-`.ICI > span` numbers in order: current / optimal / max capacity.
+We locate each `.CMCItem`, read its `.IT` name, then read the first
+`.ICI > span` number (current count). optimal/max capacity are fixed per
+venue (see `config.VENUE_CAPACITY`), so we don't parse them here.
 """
 
 from __future__ import annotations
@@ -61,10 +62,7 @@ def parse_observations(html: str, scraped_at: str) -> list[Observation]:
         venue_id = VENUE_ID_BY_NAME.get(venue_name, _slugify(venue_name) or "unknown")
 
         spans = block.select(".IC .ICI span")
-        numbers = [_to_int(s.get_text()) for s in spans]
-        # Pad to 3 so a missing field becomes None rather than an IndexError.
-        numbers += [None] * (3 - len(numbers))
-        current, optimal, max_capacity = numbers[0], numbers[1], numbers[2]
+        current = _to_int(spans[0].get_text()) if spans else None
 
         status = "ok" if current is not None else "parse_error"
         observations.append(
@@ -73,8 +71,6 @@ def parse_observations(html: str, scraped_at: str) -> list[Observation]:
                 venue_name=venue_name,
                 scraped_at=scraped_at,
                 current_count=current,
-                optimal_count=optimal,
-                max_capacity=max_capacity,
                 source_status=status,
             )
         )

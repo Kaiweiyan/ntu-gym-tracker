@@ -5,7 +5,8 @@ workflow, and the reasoning/implementation details behind each decision.
 See `PLAN.md` for the high-level roadmap; this file tracks concrete progress.
 
 - Language / runtime: **Python 3.12** (managed by **uv**)
-- Status: **M1 (collector) — working end-to-end**
+- Status: **M1–M2 (collector + web dashboard/API) and a baseline M4 forecast
+  (v0.3.0) — working end-to-end; M5 (ops hardening) in progress.**
 
 ---
 
@@ -417,7 +418,87 @@ settled value).
 
 ---
 
+## M2.z — Capacity numbers moved to config; second-precision timestamps
+
+**Goal:** `optimal_count` / `max_capacity` had been identical on every scraped
+row for every venue since day one (gym: 80/161, pool: 50/130) — they're a fixed
+property of the venue, not a live reading, so scraping and storing them every
+10 minutes was pure redundancy. Also, `scraped_at` was carrying microsecond
+precision that a 10-min collection cadence never needs.
+
+### Changes
+- `config.py`: new `VENUE_CAPACITY: dict[str, dict[str, int]]`, keyed by
+  `venue_id`, holding the fixed `optimal_count`/`max_capacity` per venue.
+- `parser.py`: only parses the first `.ICI span` (current count) out of each
+  `.CMCItem`; no longer reads the optimal/max numbers off the page.
+- `models.Observation`: dropped the `optimal_count` / `max_capacity` fields.
+- `scraper.utc_now_iso()`: truncates to whole seconds
+  (`.replace(microsecond=0)`) before `.isoformat()`.
+- `storage.CSV_FIELDS`: dropped the two columns — CSV schema is now
+  `venue_id, venue_name, scraped_at, current_count, source_status`.
+- `data_access.get_current()` and `collector.py`'s per-cycle log line now look
+  the two numbers up from `config.VENUE_CAPACITY` by `venue_id` instead of
+  reading them off the row.
+
+### Migration
+`data/occupancy.csv` (387 existing rows at the time) was rewritten in place:
+dropped the two columns, truncated every `scraped_at` to whole seconds, kept
+every row's `current_count`/`source_status` untouched. Verified by re-loading
+through `data_access` (`get_current`, `get_heatmap`, `get_history` all ran
+correctly against the migrated file).
+
+**Gotcha:** `collector.py` and `uvicorn` were both live processes on the
+workstation while this shipped. The CSV rewrite itself is safe (git-tracked,
+reversible), but a running process holds the *old* code/schema in memory until
+restarted — until then it would still expect the dropped columns. Both need a
+manual restart to pick up this change.
+
+---
+
+## M5.a — Fetch retry + forecast gap interpolation
+
+**Goal:** A single failed scrape (transient network blip) used to drop straight
+to a `fetch_error` row, leaving a visible break in the forecast chart's "實際"
+line (`connectNulls: false`). Two complementary fixes, since they solve
+different problems:
+- Retrying **cannot** recover a reading we never took — occupancy is a live,
+  time-varying number, not a resource you can re-fetch later. It can only
+  rescue *this cycle's* attempt from a transient failure (timeout, connection
+  reset, 5xx).
+- Once a reading is genuinely missing, the chart is the right place to smooth
+  it over — the raw CSV must stay honest (no fabricated values), matching the
+  project's existing null-not-zero philosophy.
+
+### Changes
+- `config.py`: `FETCH_RETRIES = 3`, `FETCH_RETRY_BACKOFF_SECONDS = 1.0`
+  (exponential backoff: `base * 2**attempt`).
+- `scraper.fetch_html()`: retries `httpx.HTTPError` up to `FETCH_RETRIES`
+  times with backoff before raising; `scrape()`'s existing
+  `except httpx.HTTPError` still catches the final failure unchanged, so a
+  fully-down site still records one `fetch_error` row as before.
+- `data_access.py`: new `_fill_short_gaps()` — linearly interpolates runs of up
+  to `MAX_INTERP_GAP_SLOTS` (2 slots = 20 min) consecutive `None`s that have
+  real readings on *both* sides; leading gaps (no data yet), trailing gaps
+  (future slots, not yet scraped), and longer runs (a real outage) are left as
+  `None` on purpose — only `get_forecast()`'s `actual` series passes through
+  it, since that's the only chart series that plots explicit `None`s into a
+  fixed-index array (`get_history`/`get_profile` already omit missing points
+  entirely via `dropna`/`groupby`, which visually "skips" gaps the same way).
+
+### Verified
+- `_fill_short_gaps` unit-tested against: single/double interior gap
+  (interpolated), 3-slot gap (left untouched — over threshold), leading gap,
+  trailing gap, no gap, single-element and empty lists.
+- `fetch_html()` retry tested by mocking `httpx.get` to fail twice then
+  succeed (returns on the 3rd attempt, ~3s elapsed from the 1s+2s backoff) and
+  to always fail (raises after exactly `FETCH_RETRIES` attempts).
+- `get_forecast("gym", "today")` run against real data: future slots stay
+  `None` (not interpolated, correctly — no right-hand real neighbor).
+
+---
+
 ## Next steps (not yet implemented)
 - Pre-aggregate hourly buckets if per-request CSV reads get slow at scale.
 - Add light unit tests for `parser.py` / API using fixtures.
-- **M4**: forecasting (calendar + weather + lag features).
+- Same-weekday baseline / model upgrade for the forecast (currently a flat
+  per-slot historical mean across all days).

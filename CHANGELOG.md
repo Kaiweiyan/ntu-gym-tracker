@@ -7,6 +7,29 @@ live in `spec.md`.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-02 — Reliability & schema cleanup
+
+### Added
+- **Fetch retry with backoff**: `scraper.fetch_html()` retries transient HTTP
+  failures (timeout / connection error / 5xx) up to 3 times with exponential
+  backoff before the cycle records a `fetch_error`. This only rescues a
+  transient failure within the same cycle — it can't recover a reading that
+  was genuinely never taken.
+- **Forecast gap interpolation**: `get_forecast()`'s "actual" series now
+  linearly interpolates isolated short gaps (up to 2 consecutive missed
+  10-min slots) between real readings on both sides; longer outages are left
+  as gaps rather than papered over.
+
+### Changed
+- **optimal_count / max_capacity moved to config**: fixed per venue
+  (confirmed unchanging since day one), so they now live in
+  `config.VENUE_CAPACITY` instead of being scraped and stored on every row.
+  `data/occupancy.csv` schema is now
+  `venue_id, venue_name, scraped_at, current_count, source_status`; the
+  existing file was migrated in place (columns dropped, row data unchanged).
+- **scraped_at truncated to whole-second precision** (was microseconds) —
+  more precision than a 10-minute collection cadence needs.
+
 ## [0.3.0] - 2026-07-01 — Occupancy forecast
 
 ### Added
