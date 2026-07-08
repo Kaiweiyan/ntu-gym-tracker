@@ -10,13 +10,12 @@
 </section>
 
 <section>
-  <h2>各時段熱門程度（星期 × 小時平均）<span class="venue-tag"></span></h2>
-  <div class="venue-toggle" id="venue-toggle">
+  <h2>場館選擇</h2>
+  <div class="venue-select" id="venue-toggle">
     {% for v in venues %}
     <button data-venue="{{ v.id }}" class="{% if loop.first %}active{% endif %}">{{ v.name }}</button>
     {% endfor %}
   </div>
-  <div class="chart-scroll"><div id="heatmap" class="chart"></div></div>
 </section>
 
 <section>
@@ -26,7 +25,6 @@
     <button data-day="tomorrow">明天 <span class="day-date">{{ tomorrow_label }}</span></button>
   </div>
   <div id="forecast" class="chart"></div>
-  <p class="muted">預測目前用歷史各時段平均；資料充足後會改用同星期幾的模型。</p>
 </section>
 
 <section>
@@ -41,14 +39,8 @@
 </section>
 
 <section>
-  <h2>人數趨勢<span class="venue-tag"></span></h2>
-  <div class="venue-toggle" id="range-toggle">
-    <button data-days="1" data-gran="hour">一天</button>
-    <button data-days="3" data-gran="hour">三天</button>
-    <button data-days="7" data-gran="hour" class="active">七天</button>
-    <button data-days="30" data-gran="day">一個月</button>
-  </div>
-  <div id="history" class="chart"></div>
+  <h2>各時段熱門程度（星期 × 小時平均）<span class="venue-tag"></span></h2>
+  <div class="chart-scroll"><div id="heatmap" class="chart"></div></div>
 </section>
 {% endblock %}
 
@@ -66,7 +58,6 @@
 
   const forecastChart = echarts.init(document.getElementById("forecast"));
   const heatmapChart = echarts.init(document.getElementById("heatmap"));
-  const historyChart = echarts.init(document.getElementById("history"));
   const profileChart = echarts.init(document.getElementById("profile"));
 
   let currentForecastDay = "today";
@@ -109,13 +100,24 @@
     }, true);
   }
 
+  // Each cell is a whole hour; label it as a range ("08-09") rather than a
+  // single hour number, since a single number centered under the cell reads
+  // ambiguously (does "8" mark the cell's start? its center?).
+  function hourRangeLabel(val) {
+    const next = (parseInt(val, 10) + 1) % 24;
+    return `${val}-${String(next).padStart(2, "0")}`;
+  }
+
   async function loadHeatmap(venue) {
     const res = await fetch(`/api/heatmap?venue=${venue}`);
     const d = await res.json();
     heatmapChart.setOption({
-      tooltip: { position: "top" },
+      tooltip: {
+        position: "top",
+        formatter: (p) => `${d.weekdays[p.value[1]]} ${hourRangeLabel(d.hours[p.value[0]])}<br>${p.value[2]} 人`,
+      },
       grid: { height: "70%", top: "5%", left: 50, right: 20 },
-      xAxis: { type: "category", data: d.hours, name: "時" },
+      xAxis: { type: "category", data: d.hours, axisLabel: { formatter: hourRangeLabel } },
       yAxis: { type: "category", data: d.weekdays },
       visualMap: {
         min: 0, max: d.max || 1, calculable: true, orient: "horizontal",
@@ -128,53 +130,6 @@
         emphasis: { itemStyle: { shadowBlur: 8, shadowColor: "rgba(0,0,0,.4)" } },
       }],
     });
-  }
-
-  let currentRange = { days: 7, granularity: "hour" };
-
-  async function loadHistory(venue, range) {
-    const res = await fetch(`/api/history?venue=${venue}&days=${range.days}&granularity=${range.granularity}`);
-    const d = await res.json();
-    const isHour = range.granularity === "hour";
-    // boundary index -> "06-24 (三)" label (date + weekday).
-    const dayLabel = new Map((d.day_boundaries || []).map((idx, i) => [idx, d.day_labels[i]]));
-    // notMerge=true so old markLines/labels are cleared when switching range.
-    historyChart.setOption({
-      baseOption: {
-        tooltip: { trigger: "axis" },
-        grid: { top: 35, left: 48, right: 20, bottom: 40 },
-        // Category axis = only the open-hour slots, evenly spaced, so closed nights
-        // are skipped instead of drawn as gaps. Labels show date+weekday at day starts.
-        xAxis: {
-          type: "category",
-          data: d.labels,
-          axisTick: { alignWithLabel: true },
-          axisLabel: {
-            // Hourly: label only at day starts. Daily: let ECharts auto-thin.
-            interval: isHour ? ((idx) => dayLabel.has(idx)) : "auto",
-            formatter: (val, idx) => dayLabel.get(idx) ?? val.split(" ")[0],
-          },
-        },
-        yAxis: { type: "value", name: "人數", nameTextStyle: { align: "left" } },
-        series: [{
-          type: "line", showSymbol: false, smooth: true,
-          data: d.counts,
-          areaStyle: { opacity: 0.15 },
-          // Dashed day separators only make sense for the hourly view.
-          markLine: {
-            silent: true, symbol: "none",
-            lineStyle: { type: "dashed", color: "#c0c6cc" },
-            label: { show: false },
-            data: isHour ? d.day_boundaries.filter(i => i > 0).map(i => ({ xAxis: i })) : [],
-          },
-        }],
-      },
-      // Narrow screens: rotate + shrink labels and give them more room.
-      media: [{ query: { maxWidth: 600 }, option: {
-        grid: { bottom: 60 },
-        xAxis: { axisLabel: { rotate: 40, fontSize: 10 } },
-      }}],
-    }, true);
   }
 
   let currentProfileDays = 7;
@@ -212,9 +167,8 @@
 
   function refresh() {
     loadForecast(currentVenue, currentForecastDay);
-    loadHeatmap(currentVenue);
-    loadHistory(currentVenue, currentRange);
     loadProfile(currentVenue, currentProfileDays);
+    loadHeatmap(currentVenue);
   }
 
   // Generic single-select toggle: marks the clicked button active, runs `onPick`.
@@ -233,10 +187,6 @@
     setVenueTags(btn.textContent.trim());
     refresh();
   });
-  wireToggle("#range-toggle", (btn) => {
-    currentRange = { days: +btn.dataset.days, granularity: btn.dataset.gran };
-    loadHistory(currentVenue, currentRange);  // heatmap is unaffected by range
-  });
   wireToggle("#profile-toggle", (btn) => {
     currentProfileDays = +btn.dataset.days;
     loadProfile(currentVenue, currentProfileDays);
@@ -248,7 +198,7 @@
 
   // Keep charts responsive to window resizing.
   window.addEventListener("resize", () => {
-    forecastChart.resize(); heatmapChart.resize(); historyChart.resize(); profileChart.resize();
+    forecastChart.resize(); profileChart.resize(); heatmapChart.resize();
   });
 
   setVenueTags(firstBtn ? firstBtn.textContent.trim() : "");

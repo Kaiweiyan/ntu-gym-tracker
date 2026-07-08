@@ -47,6 +47,21 @@ OPEN_METEO_CURRENT_FIELDS = (
     "precipitation,weather_code,wind_speed_10m"
 )
 
+# --- Forecast ---
+# Baseline strategy for get_forecast()'s predicted curve. One of the keys in
+# `data_access._FORECAST_STRATEGIES`:
+#   "same_weekday_mean" — mean per 10-min slot across all historical days that
+#                          share the target day's weekday (e.g. forecasting a
+#                          Monday only averages over past Mondays).
+#   "recent_mean"       — mean per 10-min slot across the last
+#                         FORECAST_RECENT_DAYS days, regardless of weekday.
+# To add a model-based strategy once there's enough data: write a function
+# `(df, target_date) -> dict[str, float]` in data_access.py, register it in
+# `_FORECAST_STRATEGIES`, and point this at its key — get_forecast() itself
+# doesn't change.
+FORECAST_METHOD = "same_weekday_mean"
+FORECAST_RECENT_DAYS = 30  # window used by the "recent_mean" strategy
+
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 # Occupancy is long-format (one row per venue). Weather is NOT stored — it's

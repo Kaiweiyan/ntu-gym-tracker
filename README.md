@@ -5,8 +5,8 @@ University's gym (健身中心) and indoor pool (室內游泳池).
 
 A lightweight collector scrapes the official occupancy page every 10 minutes and
 appends to a CSV; a FastAPI app serves both a JSON API and a server-rendered
-dashboard with live counts, a weekday × hour heatmap, an average-day profile, and
-occupancy trends.
+dashboard with live counts, an occupancy forecast, a weekday × hour heatmap, and
+an average-day profile.
 
 ## How it works
 
@@ -35,12 +35,12 @@ not stored — historical weather can be backfilled from its archive for trainin
 
 ## Features
 
-- **Live occupancy** per venue with a "vs. typical" busyness indicator and live
-  weather (auto-refreshing via HTMX).
-- **Weekday × hour heatmap** of average occupancy.
+- **Live occupancy** per venue with an absolute busyness level (vs. the
+  venue's own optimal_count) and live weather (auto-refreshing via HTMX).
+- **Occupancy forecast**: today/tomorrow, actual readings meeting a baseline
+  forecast line (configurable strategy, see `config.FORECAST_METHOD`).
 - **Average-day profile**: mean occupancy per 10-minute slot over the last N days.
-- **Occupancy trend** with selectable 1 / 3 / 7 / 30-day ranges; closed hours are
-  skipped so nights don't show as gaps.
+- **Weekday × hour heatmap** of average occupancy.
 - **Opening-hours aware** collection: a single `count=0` marker is recorded at the
   open and close ticks (kept distinct via `source_status` so it can be excluded
   from training); failed fetches are recorded as rows, never as a misleading `0`.
@@ -83,19 +83,15 @@ uv run uvicorn app:app --reload                       # dev (http://localhost:80
 uv run uvicorn app:app --host 0.0.0.0 --port 8000     # serve
 ```
 
-Interactive API docs are at `/docs`. To expose the local server publicly without
-opening firewall ports, point a [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
-at `http://localhost:8000`.
-
 ## API
 
 | Endpoint        | Description                                          |
 | --------------- | ---------------------------------------------------- |
 | `GET /api/venues`  | Known venues (`id`, `name`).                      |
 | `GET /api/current` | Latest count per venue + live weather.            |
-| `GET /api/history` | Trend; params `venue`, `days`, `granularity`.     |
-| `GET /api/heatmap` | Weekday × hour average matrix; param `venue`.     |
+| `GET /api/forecast` | Actual + forecast curve; params `venue`, `day`.  |
 | `GET /api/profile` | Mean per 10-min slot; params `venue`, `days`.     |
+| `GET /api/heatmap` | Weekday × hour average matrix; param `venue`.     |
 
 ## Project structure
 

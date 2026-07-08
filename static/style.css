@@ -55,6 +55,21 @@ h2 { font-size: 1.15rem; border-left: 4px solid #3b82f6; padding-left: 8px; }
   padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 0.9rem;
 }
 .venue-toggle button.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+
+/* Global venue picker (drives every chart) — deliberately bigger and shaped
+   differently (rounded rect, not a pill) than the per-chart .venue-toggle
+   buttons below, so it doesn't read as "just another chart option". */
+.venue-select { display: flex; flex-wrap: wrap; gap: 12px; }
+.venue-select button {
+  border: 2px solid var(--line); background: var(--card); color: var(--ink);
+  padding: 12px 28px; border-radius: 12px; cursor: pointer;
+  font-size: 1.1rem; font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+}
+.venue-select button.active {
+  background: #3b82f6; color: #fff; border-color: #3b82f6;
+  box-shadow: 0 3px 8px rgba(59, 130, 246, .35);
+}
 /* Date beside 今天/明天: dimmer + smaller, readable on both white and blue. */
 .day-date { font-size: 0.82em; opacity: 0.7; }
 

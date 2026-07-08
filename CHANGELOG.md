@@ -7,6 +7,50 @@ live in `spec.md`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-09 — Forecast strategies, heatmap fixes, dashboard cleanup
+
+### Added
+- **Configurable forecast baseline** (`config.FORECAST_METHOD`):
+  `same_weekday_mean` (default — mean per slot over historical days sharing
+  the target weekday) or `recent_mean` (rolling N-day window). Implemented as
+  a strategy registry (`data_access._FORECAST_STRATEGIES`) so a model-based
+  strategy can be added later without touching `get_forecast()`.
+- Forecast chart now draws the baseline for the **entire day**, not just from
+  "now" onward, so the actual and predicted lines overlap and forecast
+  accuracy is visible at a glance.
+- Cache-busting for static assets (`/static/style.css?v=<mtime>`) so CSS/JS
+  edits are picked up on a normal refresh instead of requiring a manual
+  hard-refresh.
+
+### Changed
+- **Busyness level** (`get_current`) is now an absolute level vs. the venue's
+  own `optimal_count` (`quiet` <50%, `normal` 50–100%, `busy` >100%), not a
+  comparison to the historical average for that time slot.
+- Forecast and profile values are rounded to whole numbers for display.
+- Heatmap hour labels are shown as ranges (`"08-09"`) instead of a single
+  number, and the redundant `"時"` axis title was removed.
+- Dashboard section order: 現在人數 → 場館選擇 → 人數預測 → 各時段平均人數 →
+  熱力圖. The venue selector is now a standalone, visually distinct global
+  control (bigger, differently shaped) instead of living inside the heatmap
+  section.
+- `data_access.py` internal reorganization (function order matches route
+  order, private helpers consolidated) — no behavior change beyond the fixes
+  below.
+- `spec.md` rewritten as an architecture-organized reference instead of a
+  chronological change log.
+
+### Removed
+- **Breaking:** `GET /api/history` endpoint and the 人數趨勢 (occupancy
+  trend) chart.
+
+### Fixed
+- Heatmap cells were rendered under the wrong hour label (an indexing bug —
+  raw hour numbers were used as chart-axis indices instead of positions), and
+  cells for the last several opening hours didn't render at all.
+- Heatmap averages no longer include the opening/closing boundary `count=0`
+  markers, which had faked an always-empty "22:00" column and diluted the
+  opening hour's average.
+
 ## [0.3.1] - 2026-07-02 — Reliability & schema cleanup
 
 ### Added

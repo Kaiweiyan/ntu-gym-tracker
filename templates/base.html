@@ -6,7 +6,7 @@
   <title>{% block title %}NTU Gym Tracker{% endblock %}</title>
   <!-- Inline emoji favicon (avoids the /favicon.ico 404, no binary file needed). -->
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏋️</text></svg>">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ static_version }}">
   <!-- ECharts: draws the charts in the browser -->
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <!-- HTMX: lets HTML attributes fetch/refresh fragments without writing JS -->
@@ -15,7 +15,7 @@
 <body>
   <header>
     <h1>NTU Gym Tracker</h1>
-    <p class="sub">台大健身中心・游泳池 即時人數與歷史趨勢</p>
+    <p class="sub">台大健身中心・游泳池 即時人數與預測</p>
   </header>
   <main>
     {% block content %}{% endblock %}

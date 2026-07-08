@@ -1,13 +1,17 @@
 """Read the collector's CSVs and compute the aggregates the web API serves.
 
 The collector writes raw rows to `data/*.csv`; this module turns them into the
-shapes the dashboard needs: latest reading, history time-series, and a
-weekday*hour heatmap. We use pandas for the grouping/resampling.
+shapes the dashboard needs: latest reading, history time-series, a
+weekday*hour heatmap, an average-day profile, and a baseline forecast. We use
+pandas for the grouping/resampling.
 
 Loading is cached on the file's modification time, so we only re-read the CSV
 when the collector has actually appended new data (cheap per-request reads).
 All timestamps are stored UTC; we convert to Asia/Taipei here because the
 weekday/hour buckets only make sense in local time.
+
+Layout: cache/load helpers, then the public functions (in the same order as
+their routes in `app.py`), then all private helpers grouped at the bottom.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ from typing import Any
 
 import pandas as pd
 
-from .config import CSV_PATH, VENUE_CAPACITY
+from .config import CSV_PATH, FORECAST_METHOD, FORECAST_RECENT_DAYS, VENUE_CAPACITY
 from .hours import SLOT_MINUTES, now_taipei, open_close
 
 TAIPEI = "Asia/Taipei"  # IANA timezone name
@@ -74,7 +78,11 @@ def list_venues() -> list[dict]:
 
 
 def get_current() -> list[dict]:
-    """Latest reading per venue, with occupancy % and 'vs typical' busyness."""
+    """Latest reading per venue, with occupancy % and an absolute busyness level
+    (vs. the venue's own optimal_count, not the historical average for this
+    time slot — see `_busyness`). `typical_count` (same weekday+hour historical
+    mean) is still returned as informational context.
+    """
     df = _occupancy_ok()
     if df.empty:
         return []
@@ -93,7 +101,6 @@ def get_current() -> list[dict]:
         ]
         typical = _mean(same_slot)
         count = int(row["current_count"])
-        ratio = (count / typical) if typical else None
         cap = VENUE_CAPACITY.get(row["venue_id"], {})
         out.append(
             {
@@ -104,7 +111,7 @@ def get_current() -> list[dict]:
                 "max_capacity": cap.get("max_capacity"),
                 "occupancy_pct": _pct(count, cap.get("max_capacity")),
                 "typical_count": typical,
-                "busyness": _busyness(ratio),
+                "busyness": _busyness(count, cap.get("optimal_count")),
                 "scraped_at": row["scraped_at"].isoformat(),
                 "local_time": row["local"].strftime("%Y-%m-%d %H:%M"),
             }
@@ -112,47 +119,40 @@ def get_current() -> list[dict]:
     return out
 
 
-def get_history(venue_id: str, days: int = 7, granularity: str = "hour") -> dict:
-    """Resampled mean occupancy over the last `days` days for one venue.
+def get_heatmap(venue_id: str) -> dict:
+    """Mean occupancy per (weekday, hour) cell for one venue, for an ECharts heatmap.
 
-    Closed-hour buckets (which resample produces as NaN) are dropped, so the
-    chart's x-axis is a continuous run of OPEN slots with no nightly gaps. We
-    also return `day_boundaries` (indices where a new calendar day starts) and a
-    parallel `day_labels` (e.g. "06-24 (三)") so the frontend can draw a dashed
-    separator and a weekday-tagged date label per day.
+    Only "ok" (real scrape) rows count — the opening/closing boundary
+    count=0 markers (`source_status` "open"/"closed") are excluded, unlike
+    other charts that deliberately keep them to make a *line* return to 0.
+    A heatmap has no such need, and keeping them would permanently drag the
+    opening hour's average down and add a fake, always-empty closing-hour
+    column (real scrapes never land exactly on the closing tick).
     """
-    empty = {"labels": [], "counts": [], "day_boundaries": [], "day_labels": []}
+    empty = {"data": [], "hours": [], "weekdays": WEEKDAY_LABELS, "max": 0}
     df = _occupancy_ok()
     if df.empty:
         return empty
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    df = df.loc[(df["venue_id"] == venue_id) & (df["scraped_at"] >= cutoff)]
+    df = df.loc[(df["venue_id"] == venue_id) & (df["source_status"] == "ok")]
     if df.empty:
         return empty
-
-    rule = "D" if granularity == "day" else "h"
-    series = df.set_index("local")["current_count"].resample(rule).mean().dropna()
-    resampled = series.reset_index()
-    resampled.columns = ["ts", "count"]
-
-    labels: list[str] = []
-    counts: list[float] = []
-    day_boundaries: list[int] = []
-    day_labels: list[str] = []
-    prev_day = None
-    for ts, val in zip(resampled["ts"].tolist(), resampled["count"].tolist()):
-        day = ts.strftime("%Y-%m-%d")
-        if day != prev_day:
-            day_boundaries.append(len(labels))
-            day_labels.append(f"{ts.strftime('%m-%d')} ({WEEKDAY_ZH[ts.weekday()]})")
-            prev_day = day
-        labels.append(ts.strftime("%m-%d %H:%M"))
-        counts.append(round(float(val), 1))
+    grouped = df.groupby(["weekday", "hour"])["current_count"].mean().reset_index()
+    # ECharts wants [x_index, y_index, value] — an *index* into `hours`, not the
+    # raw hour number (opening hour is 8, not 0, so the two only coincide by
+    # accident and every cell used to land 8 slots to the right of its label).
+    hours = sorted({int(h) for h in grouped["hour"]})
+    hour_index = {h: i for i, h in enumerate(hours)}
+    data = [
+        [hour_index[int(h)], int(wd), round(float(c), 1)]
+        for wd, h, c in zip(
+            grouped["weekday"], grouped["hour"], grouped["current_count"]
+        )
+    ]
     return {
-        "labels": labels,
-        "counts": counts,
-        "day_boundaries": day_boundaries,
-        "day_labels": day_labels,
+        "data": data,
+        "hours": [f"{h:02d}" for h in hours],
+        "weekdays": WEEKDAY_LABELS,
+        "max": _to_float(df["current_count"].max()),
     }
 
 
@@ -164,78 +164,27 @@ def get_profile(venue_id: str, days: int = 7) -> dict:
     daily curve aligned to the collector's 10-min cadence.
     """
     empty = {"slots": [], "counts": []}
-    df = _occupancy_ok()
+    df = _for_venue_since(_occupancy_ok(), venue_id, days)
     if df.empty:
         return empty
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    df = df.loc[(df["venue_id"] == venue_id) & (df["scraped_at"] >= cutoff)].copy()
-    if df.empty:
-        return empty
-    # Time-of-day slot label, floored to 10 minutes (e.g. 13:20).
-    df["slot"] = df["local"].dt.floor("10min").dt.strftime("%H:%M")
-    prof = df.groupby("slot")["current_count"].mean().reset_index()
+    slot_means = _slot_means(df)
     return {
-        "slots": prof["slot"].tolist(),
-        "counts": [round(float(c), 1) for c in prof["current_count"].tolist()],
+        "slots": list(slot_means.keys()),
+        "counts": list(slot_means.values()),
     }
-
-
-def _day_slots(open_t, close_t) -> list[str]:
-    """10-min slot labels 'HH:MM' from open to close inclusive."""
-    start = open_t.hour * 60 + open_t.minute
-    end = close_t.hour * 60 + close_t.minute
-    return [f"{m // 60:02d}:{m % 60:02d}" for m in range(start, end + 1, SLOT_MINUTES)]
-
-
-def _slot_means(df) -> dict[str, float]:
-    """Mean current_count per 10-min time-of-day slot, over the given rows."""
-    if df.empty:
-        return {}
-    tmp = df.copy()
-    tmp["slot"] = tmp["local"].dt.floor("10min").dt.strftime("%H:%M")
-    g = tmp.groupby("slot")["current_count"].mean().reset_index()
-    return {s: round(float(c), 1) for s, c in zip(g["slot"].tolist(), g["current_count"].tolist())}
-
-
-# A single missed scrape (fetch/parse failure) leaves an isolated None in
-# `actual`; bridge runs up to this many consecutive slots by interpolating
-# between the real readings on either side. Longer runs are a real outage
-# (site down, closed venue, ...) and are left as None rather than papered over.
-MAX_INTERP_GAP_SLOTS = 2
-
-
-def _fill_short_gaps(values: list[float | None]) -> list[float | None]:
-    """Linearly interpolate short runs of None that have real neighbors on both
-    sides. Leading/trailing None (no data yet, or future slots) is untouched
-    since there's no neighbor on one side to interpolate from.
-    """
-    filled = list(values)
-    i, n = 0, len(filled)
-    while i < n:
-        if filled[i] is not None:
-            i += 1
-            continue
-        j = i
-        while j < n and filled[j] is None:
-            j += 1
-        gap_len = j - i
-        if i > 0 and j < n and gap_len <= MAX_INTERP_GAP_SLOTS:
-            left, right = filled[i - 1], filled[j]
-            for k in range(gap_len):
-                filled[i + k] = round(left + (right - left) * (k + 1) / (gap_len + 1), 1)
-        i = j
-    return filled
 
 
 def get_forecast(venue_id: str, day: str = "today") -> dict:
     """Baseline occupancy forecast for `day` ('today' | 'tomorrow'), 10-min slots.
 
-    Baseline = historical mean per time-of-day slot across ALL days (data is still
-    sparse). Later this can switch to a same-weekday mean, or a model, without any
-    frontend change. For today, `actual` holds real readings up to now (short
-    gaps from a missed scrape are interpolated, see `_fill_short_gaps`) and
-    `forecast` covers now→close (they meet at the current slot); for tomorrow
-    the whole day is forecast.
+    Baseline = `config.FORECAST_METHOD` strategy (see `_FORECAST_STRATEGIES`),
+    swappable for a model later without any frontend change. `forecast` covers
+    the *whole* day (open→close), including
+    the already-elapsed part, so the dashed baseline sits next to the solid
+    `actual` line wherever both exist — that overlap is what lets a user judge
+    how accurate the forecast has been today, not just what it predicts ahead.
+    `actual` holds real readings up to now (short gaps from a missed scrape are
+    interpolated, see `_fill_short_gaps`); for tomorrow it's empty.
     """
     empty = {"slots": [], "actual": [], "forecast": [], "now_slot": None}
     df = _occupancy_ok()
@@ -249,7 +198,7 @@ def get_forecast(venue_id: str, day: str = "today") -> dict:
     target_date = now.date() if day == "today" else now.date() + timedelta(days=1)
     slots = _day_slots(*open_close(target_date.weekday()))
 
-    baseline = _slot_means(df)  # TODO: switch to same-weekday mean once data is rich
+    baseline = _forecast_baseline(df, target_date)
     now_slot = f"{now.hour:02d}:{now.minute // SLOT_MINUTES * SLOT_MINUTES:02d}"
     actual_by_slot = (
         _slot_means(df.loc[df["local"].dt.date == target_date]) if day == "today" else {}
@@ -261,47 +210,13 @@ def get_forecast(venue_id: str, day: str = "today") -> dict:
         a = actual_by_slot.get(s)
         past_or_now = day == "today" and s <= now_slot
         actual.append(a if (past_or_now and a is not None) else None)
-
-        if day == "tomorrow":
-            forecast.append(baseline.get(s))
-        elif s == now_slot:  # connect the dashed line to the real "now" point
-            forecast.append(a if a is not None else baseline.get(s))
-        elif s > now_slot:
-            forecast.append(baseline.get(s))
-        else:
-            forecast.append(None)
+        forecast.append(baseline.get(s))
 
     return {
         "slots": slots,
-        "actual": _fill_short_gaps(actual),
-        "forecast": forecast,
+        "actual": _round_ints(_fill_short_gaps(actual)),
+        "forecast": _round_ints(forecast),
         "now_slot": now_slot if day == "today" else None,
-    }
-
-
-def get_heatmap(venue_id: str) -> dict:
-    """Mean occupancy per (weekday, hour) cell for one venue, for an ECharts heatmap."""
-    empty = {"data": [], "hours": [], "weekdays": WEEKDAY_LABELS, "max": 0}
-    df = _occupancy_ok()
-    if df.empty:
-        return empty
-    df = df.loc[df["venue_id"] == venue_id]
-    if df.empty:
-        return empty
-    grouped = df.groupby(["weekday", "hour"])["current_count"].mean().reset_index()
-    # ECharts heatmap wants [x_index, y_index, value] = [hour, weekday, value].
-    data = [
-        [int(h), int(wd), round(float(c), 1)]
-        for wd, h, c in zip(
-            grouped["weekday"], grouped["hour"], grouped["current_count"]
-        )
-    ]
-    hours = sorted({int(h) for h in grouped["hour"]})
-    return {
-        "data": data,
-        "hours": [f"{h:02d}" for h in hours],
-        "weekdays": WEEKDAY_LABELS,
-        "max": _to_float(df["current_count"].max()),
     }
 
 
@@ -334,9 +249,103 @@ def get_current_weather() -> dict | None:
     return value
 
 
-# --- small helpers ---------------------------------------------------------
-# Params are intentionally untyped: pandas scalars come through as Any, which
-# keeps the type checker quiet while these guard the None/format conversions.
+# --- private helpers ---------------------------------------------------------
+# Params are intentionally untyped in a few spots: pandas scalars come through
+# as Any, which keeps the type checker quiet while these guard the None/format
+# conversions.
+
+
+def _for_venue_since(df: pd.DataFrame, venue_id: str, days: int) -> pd.DataFrame:
+    """Rows for one venue from the last `days` days (used by history/profile)."""
+    if df.empty:
+        return df
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    return df.loc[(df["venue_id"] == venue_id) & (df["scraped_at"] >= cutoff)]
+
+
+def _day_slots(open_t, close_t) -> list[str]:
+    """10-min slot labels 'HH:MM' from open to close inclusive."""
+    start = open_t.hour * 60 + open_t.minute
+    end = close_t.hour * 60 + close_t.minute
+    return [f"{m // 60:02d}:{m % 60:02d}" for m in range(start, end + 1, SLOT_MINUTES)]
+
+
+def _slot_means(df: pd.DataFrame) -> dict[str, float]:
+    """Mean current_count per 10-min time-of-day slot, over the given rows."""
+    if df.empty:
+        return {}
+    tmp = df.copy()
+    tmp["slot"] = tmp["local"].dt.floor("10min").dt.strftime("%H:%M")
+    g = tmp.groupby("slot")["current_count"].mean().reset_index()
+    return {s: round(float(c), 1) for s, c in zip(g["slot"].tolist(), g["current_count"].tolist())}
+
+
+def _baseline_same_weekday_mean(df: pd.DataFrame, target_date) -> dict[str, float]:
+    """Mean per slot over all historical days sharing `target_date`'s weekday."""
+    return _slot_means(df.loc[df["weekday"] == target_date.weekday()])
+
+
+def _baseline_recent_mean(df: pd.DataFrame, target_date) -> dict[str, float]:
+    """Mean per slot over the last `FORECAST_RECENT_DAYS` days, any weekday."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=FORECAST_RECENT_DAYS)
+    return _slot_means(df.loc[df["scraped_at"] >= cutoff])
+
+
+# Registry of forecast baseline strategies, selected by config.FORECAST_METHOD.
+# Add a new "(df, target_date) -> {slot: mean}" function and register it here
+# to plug in a model later — get_forecast() itself doesn't need to change.
+_FORECAST_STRATEGIES = {
+    "same_weekday_mean": _baseline_same_weekday_mean,
+    "recent_mean": _baseline_recent_mean,
+}
+
+
+def _forecast_baseline(df: pd.DataFrame, target_date) -> dict[str, float]:
+    try:
+        strategy = _FORECAST_STRATEGIES[FORECAST_METHOD]
+    except KeyError:
+        raise ValueError(
+            f"config.FORECAST_METHOD={FORECAST_METHOD!r} is not a known "
+            f"strategy; expected one of {list(_FORECAST_STRATEGIES)}"
+        ) from None
+    return strategy(df, target_date)
+
+
+# A single missed scrape (fetch/parse failure) leaves an isolated None in
+# get_forecast's `actual`; bridge runs up to this many consecutive slots by
+# interpolating between the real readings on either side. Longer runs are a
+# real outage (site down, closed venue, ...) and are left as None rather than
+# papered over.
+MAX_INTERP_GAP_SLOTS = 2
+
+
+def _fill_short_gaps(values: list[float | None]) -> list[float | None]:
+    """Linearly interpolate short runs of None that have real neighbors on both
+    sides. Leading/trailing None (no data yet, or future slots) is untouched
+    since there's no neighbor on one side to interpolate from.
+    """
+    filled = list(values)
+    i, n = 0, len(filled)
+    while i < n:
+        if filled[i] is not None:
+            i += 1
+            continue
+        j = i
+        while j < n and filled[j] is None:
+            j += 1
+        gap_len = j - i
+        if i > 0 and j < n and gap_len <= MAX_INTERP_GAP_SLOTS:
+            left, right = filled[i - 1], filled[j]
+            for k in range(gap_len):
+                filled[i + k] = round(left + (right - left) * (k + 1) / (gap_len + 1), 1)
+        i = j
+    return filled
+
+
+def _round_ints(values: list[float | None]) -> list[int | None]:
+    """Round a list of people-counts to whole numbers for display."""
+    return [round(v) if v is not None else None for v in values]
+
 
 def _to_float(v) -> float:
     return round(float(v), 1)
@@ -352,12 +361,16 @@ def _pct(count, capacity) -> int | None:
     return round(100 * count / capacity)
 
 
-def _busyness(ratio: float | None) -> str:
-    """Coarse 'vs typical' label used to colour the current-occupancy card."""
-    if ratio is None:
+def _busyness(count: int, optimal_count: int | None) -> str:
+    """Absolute crowding level vs. the venue's own fixed 'optimal' (comfortable)
+    count — not a comparison to the historical average for this time slot, so
+    two venues/slots with different typical loads aren't both labelled
+    "normal" just because each is near its own average.
+    """
+    if not optimal_count:
         return "unknown"
-    if ratio < 0.7:
+    if count < 0.5 * optimal_count:
         return "quiet"
-    if ratio <= 1.3:
+    if count <= optimal_count:
         return "normal"
     return "busy"

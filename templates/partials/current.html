@@ -17,9 +17,9 @@
       <div class="card-pct">{{ v.occupancy_pct }}% 滿載 (上限 {{ v.max_capacity }})</div>
     {% endif %}
     <div class="card-busy">
-      {% if v.busyness == "quiet" %}🟢 比平常空
-      {% elif v.busyness == "normal" %}🟡 跟平常差不多
-      {% elif v.busyness == "busy" %}🔴 比平常擁擠
+      {% if v.busyness == "quiet" %}🟢 空
+      {% elif v.busyness == "normal" %}🟡 普通
+      {% elif v.busyness == "busy" %}🔴 擁擠
       {% else %}— {% endif %}
       {% if v.typical_count is not none %}<span class="muted">(此時段平均 {{ v.typical_count }})</span>{% endif %}
     </div>

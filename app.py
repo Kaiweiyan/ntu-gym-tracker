@@ -15,6 +15,7 @@ Two kinds of routes:
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
@@ -24,10 +25,24 @@ from fastapi.templating import Jinja2Templates
 from ntu_gym_tracker import data_access as data
 from ntu_gym_tracker.hours import now_taipei
 
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
 
 def _day_label(dt) -> str:
     """e.g. '7/1 (三)' — for the forecast day toggle."""
     return f"{dt.month}/{dt.day} ({data.WEEKDAY_ZH[dt.weekday()]})"
+
+
+def _static_version() -> str:
+    """Cache-busting token for /static assets, appended as `?v=` on asset URLs.
+
+    Without this, a browser (or an intermediate proxy like a Cloudflare
+    Tunnel) that already cached style.css keeps serving the stale copy after
+    a CSS change, even on a plain refresh — the URL never changed, so there's
+    nothing telling the cache to refetch. Using the file's own mtime means
+    the query string changes exactly when the file does.
+    """
+    return str(int((_STATIC_DIR / "style.css").stat().st_mtime))
 
 app = FastAPI(title="NTU Gym Tracker")
 
@@ -45,11 +60,6 @@ def api_venues() -> list[dict]:
 @app.get("/api/current")
 def api_current() -> dict:
     return {"venues": data.get_current(), "weather": data.get_current_weather()}
-
-
-@app.get("/api/history")
-def api_history(venue: str, days: int = 7, granularity: str = "hour") -> dict:
-    return data.get_history(venue, days=days, granularity=granularity)
 
 
 @app.get("/api/heatmap")
@@ -79,6 +89,7 @@ def index(request: Request):
             "venues": data.list_venues(),
             "today_label": _day_label(now),
             "tomorrow_label": _day_label(now + timedelta(days=1)),
+            "static_version": _static_version(),
         },
     )
 
