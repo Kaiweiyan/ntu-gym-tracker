@@ -62,6 +62,14 @@ OPEN_METEO_CURRENT_FIELDS = (
 FORECAST_METHOD = "same_weekday_mean"
 FORECAST_RECENT_DAYS = 30  # window used by the "recent_mean" strategy
 
+# --- Suspected ad-hoc closures (typhoon days, etc.) ---
+# These aren't in the fixed weekly hours table (hours._HOURS) since they're
+# unscheduled, so they're inferred from the data instead: if every known venue
+# reads a real ("ok") 0 for this many consecutive 10-min slots, treat that day
+# as a suspected closure (surfaced as a dashboard badge, and excluded from
+# historical averages so it doesn't drag down profile/heatmap/forecast).
+SUSPECTED_CLOSURE_MIN_SLOTS = 3  # 3 slots = 30 min of all-venue zero readings
+
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 # Occupancy is long-format (one row per venue). Weather is NOT stored — it's

@@ -49,8 +49,13 @@ def is_open(dt: datetime | None = None) -> bool:
     return open_t <= dt.time() < close_t
 
 
-def _slot(dt: datetime) -> tuple[int, int]:
-    return (dt.hour, dt.minute // SLOT_MINUTES * SLOT_MINUTES)
+def _slot(t: datetime | time) -> tuple[int, int]:
+    """The 10-min slot `t` falls in, as an (hour, minute) key.
+
+    Takes either a `datetime` or a bare `time` — both expose `.hour`/`.minute`,
+    so one function covers comparing "now" against a table of `time` bounds.
+    """
+    return (t.hour, t.minute // SLOT_MINUTES * SLOT_MINUTES)
 
 
 def is_opening_tick(dt: datetime | None = None) -> bool:
@@ -61,7 +66,7 @@ def is_opening_tick(dt: datetime | None = None) -> bool:
     """
     dt = dt or now_taipei()
     open_t, _ = _HOURS[dt.weekday()]
-    return _slot(dt) == _slot_of_time(open_t)
+    return _slot(dt) == _slot(open_t)
 
 
 def is_closing_tick(dt: datetime | None = None) -> bool:
@@ -73,8 +78,4 @@ def is_closing_tick(dt: datetime | None = None) -> bool:
     """
     dt = dt or now_taipei()
     _, close_t = _HOURS[dt.weekday()]
-    return _slot(dt) == _slot_of_time(close_t)
-
-
-def _slot_of_time(t: time) -> tuple[int, int]:
-    return (t.hour, t.minute // SLOT_MINUTES * SLOT_MINUTES)
+    return _slot(dt) == _slot(close_t)

@@ -44,6 +44,10 @@ not stored — historical weather can be backfilled from its archive for trainin
 - **Opening-hours aware** collection: a single `count=0` marker is recorded at the
   open and close ticks (kept distinct via `source_status` so it can be excluded
   from training); failed fetches are recorded as rows, never as a misleading `0`.
+- **Suspected ad-hoc closure detection**: an unscheduled closure (e.g. a
+  typhoon day) isn't in the fixed weekly hours table, so it's inferred from
+  the data — all venues reading 0 together for long enough flags a dashboard
+  banner and excludes that day from the historical averages.
 
 ## Tech stack
 
@@ -96,7 +100,7 @@ uv run uvicorn app:app --host 0.0.0.0 --port 8000     # serve
 ## Project structure
 
 ```
-ntu_gym_tracker/      # package: config, scraper, parser, hours, storage, data_access
+ntu_gym_tracker/      # package: config, scraper, parser, hours, storage, data_access, forecast_model
 app.py                # FastAPI app (JSON API + dashboard)
 collector.py          # collector: always-on loop, or --once for cron
 templates/ static/    # Jinja2 templates + CSS

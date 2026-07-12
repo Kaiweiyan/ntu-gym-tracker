@@ -7,6 +7,45 @@ live in `spec.md`.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-12 — Ad-hoc closure detection, retry fix, forecast_model split
+
+### Added
+- **Suspected ad-hoc closure detection**: if every venue reads a real 0 for
+  3+ consecutive 10-min slots (e.g. a typhoon day), the dashboard now shows
+  a "可能臨時休館" banner, and that date is excluded from the historical
+  averages behind `/api/profile`, `/api/heatmap`, and the forecast baseline
+  so it doesn't drag them down. These days aren't in the fixed weekly hours
+  table (`hours._HOURS`) — they're inferred from the data itself, not a
+  maintained calendar.
+- The closure banner also covers ordinary non-opening hours now (every
+  night, Sunday evening, ...), not just the ad-hoc/typhoon case —
+  `app._closure_notice()` checks `hours.is_open()` first (a definite fact)
+  before falling back to the ad-hoc heuristic.
+- Live occupancy cards no longer show a misleading "0 人" while
+  `closure_notice` is set — the count/percent/busyness block is replaced
+  with a plain "休館中" label (venue name and last-updated time still show).
+
+### Changed
+- **Forecast logic moved to `ntu_gym_tracker/forecast_model.py`**: baselines,
+  the strategy registry, gap-fill, and rounding all moved out of
+  `data_access.py` into their own module, which takes plain DataFrames and
+  owns no CSV/loading logic — the intended home for a learned model later.
+  `data_access.get_forecast()` is now a thin wrapper that resolves the raw +
+  closure-excluded DataFrames and delegates to `forecast_model.forecast()`.
+  No behavior change.
+
+### Fixed
+- **Retry didn't cover parse failures**: `fetch_html()`'s retry only wrapped
+  the HTTP GET, so a fetch that succeeded (200 OK) but then failed to parse
+  (e.g. a momentarily incomplete page render) was recorded as a permanent
+  `parse_error` with zero retries. `scrape()` now retries the fetch+parse
+  pair as one unit, up to `FETCH_RETRIES` times with backoff, reusing the
+  cycle's original `scraped_at` unchanged on every attempt.
+- **pyright errors in `_suspected_closure_dates`**: iterating a pandas
+  `Series.items()` types the index label as plain `Hashable`, so `slot -
+  prev_slot` and `slot.date()` didn't type-check. Cast each label to
+  `pd.Timestamp` explicitly before use.
+
 ## [0.4.0] - 2026-07-09 — Forecast strategies, heatmap fixes, dashboard cleanup
 
 ### Added

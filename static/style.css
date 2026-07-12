@@ -30,6 +30,22 @@ h2 { font-size: 1.15rem; border-left: 4px solid #3b82f6; padding-left: 8px; }
 
 .muted { color: var(--muted); font-size: 0.85rem; }
 .weather { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.closure-notice {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+}
+.closure-notice.closure-suspected {
+  background: #fff8e1;
+  border-color: var(--normal);
+  border-left: 6px solid var(--normal);
+}
+.closure-notice.closure-scheduled {
+  background: var(--card);
+  border-left: 6px solid var(--muted);
+  color: var(--muted);
+}
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .card {
@@ -48,6 +64,9 @@ h2 { font-size: 1.15rem; border-left: 4px solid #3b82f6; padding-left: 8px; }
 .busyness-quiet  { border-left-color: var(--quiet); }
 .busyness-normal { border-left-color: var(--normal); }
 .busyness-busy   { border-left-color: var(--busy); }
+
+.card-closed { border-left-color: var(--muted); }
+.card-closed-label { font-size: 1.6rem; color: var(--muted); }
 
 .venue-toggle { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .venue-toggle button {

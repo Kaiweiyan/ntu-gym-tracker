@@ -40,11 +40,17 @@ original roadmap and `CHANGELOG.md` for release-by-release history.
 - **Failures become rows, not gaps.** A fetch or parse failure records one row
   with `current_count=NULL` and a descriptive `source_status`
   (`fetch_error: ...` / `parse_error: ...`) — never a fabricated `0`.
-- `fetch_html()` retries transient HTTP failures (timeout/connection/5xx) up
-  to `config.FETCH_RETRIES` (3) times with exponential backoff
-  (`FETCH_RETRY_BACKOFF_SECONDS`) before giving up for the cycle. This only
-  rescues *this cycle's* attempt — occupancy is a live, time-varying number,
-  so a retry can never recover a reading that was genuinely never taken.
+- `scrape()` retries the fetch+parse pair together, up to `config.FETCH_RETRIES`
+  (3) times with exponential backoff (`FETCH_RETRY_BACKOFF_SECONDS`), before
+  giving up for the cycle — a transient HTTP failure (timeout/connection/5xx)
+  and a transient parse failure (e.g. the page briefly rendering an
+  incomplete body) get the same second chance, since neither can be told
+  apart from a genuine outage without simply trying again. Every retry reuses
+  the cycle's original `scraped_at` unchanged — a retry re-samples the same
+  scheduled tick, it does not shift the tick to whenever the retry actually
+  runs. This only rescues *this cycle's* attempt — occupancy is a live,
+  time-varying number, so a retry can never recover a reading that was
+  genuinely never taken.
 - **Opening-hours aware** (`hours.py`, `Asia/Taipei`, per-weekday table:
   Mon–Fri 08–22, Sat 09–22, Sun 09–18). Closed ticks are skipped entirely,
   *except* the exact opening and closing tick, which record one `count=0` row
@@ -68,7 +74,7 @@ original roadmap and `CHANGELOG.md` for release-by-release history.
 
 ---
 
-## Web app (`app.py`, `ntu_gym_tracker/data_access.py`)
+## Web app (`app.py`, `ntu_gym_tracker/data_access.py`, `ntu_gym_tracker/forecast_model.py`)
 
 FastAPI + Jinja2 + ECharts + HTMX. Routes: `/api/venues`, `/api/current`,
 `/api/profile`, `/api/heatmap`, `/api/forecast`; `/` (dashboard) and
@@ -93,25 +99,58 @@ FastAPI + Jinja2 + ECharts + HTMX. Routes: `/api/venues`, `/api/current`,
   `optimal_count` — `quiet` (<50%), `normal` (50–100%), `busy` (>100%) — not a
   comparison to the historical average for that time slot, so it answers "is
   it crowded right now" rather than "busier than usual for this hour".
-- **Forecast** (`get_forecast`): baseline is picked via a swappable strategy
-  registry — `config.FORECAST_METHOD` selects a key in
-  `data_access._FORECAST_STRATEGIES`. Current strategies:
-  `same_weekday_mean` (default — mean per slot over historical days sharing
-  the target weekday) and `recent_mean` (rolling `FORECAST_RECENT_DAYS`-day
-  window, any weekday). Adding a model later means writing one more
+- **Forecast** (`forecast_model.py`): all forecast logic — baselines, the
+  strategy registry, gap-fill, rounding — lives here, not in `data_access.py`.
+  `data_access.get_forecast()` is a thin wrapper: it resolves the venue's raw
+  readings (`df`, for `actual`) and closure-excluded historical readings
+  (`hist`, for the baseline, via `_historical_ok()`), then calls
+  `forecast_model.forecast(df, hist, day)`, which owns no CSV/loading logic
+  of its own — kept swappable/testable independent of the data layer, and
+  the natural home for a learned model later. Baseline is picked via a
+  swappable strategy registry — `config.FORECAST_METHOD` selects a key in
+  `forecast_model._STRATEGIES`. Current strategies: `same_weekday_mean`
+  (default — mean per slot over historical days sharing the target weekday)
+  and `recent_mean` (rolling `FORECAST_RECENT_DAYS`-day window, any
+  weekday). Adding a model later means writing one more
   `(df, target_date) -> {slot: mean}` function and registering it —
-  `get_forecast()` itself doesn't change. The baseline is drawn for the
-  **entire** day (not just from "now" on), so actual and forecast overlap and
-  a user can judge the forecast's accuracy directly. Short (≤2 slot / 20 min)
-  gaps in `actual` from a missed scrape are linearly interpolated
-  (`_fill_short_gaps`); longer gaps are left alone (a real outage, not
-  papered over). All displayed counts are rounded to whole numbers
-  (`_round_ints`).
+  `forecast_model.forecast()` itself doesn't change. The baseline is drawn
+  for the **entire** day (not just from "now" on), so actual and forecast
+  overlap and a user can judge the forecast's accuracy directly. Short (≤2
+  slot / 20 min) gaps in `actual` from a missed scrape are linearly
+  interpolated (`_fill_short_gaps`); longer gaps are left alone (a real
+  outage, not papered over). All displayed counts are rounded to whole
+  numbers (`_round_ints`). `slot_means()` (the per-10-min-slot averaging
+  used by the baselines) is also reused by `data_access.get_profile()`'s
+  non-forecast average-day chart — the one function shared back across the
+  data_access → forecast_model dependency direction.
 - **Heatmap** x-axis cells are labeled by hour range (`"08-09"`) rather than a
   bare hour number — ECharts always centers one label per category band, so
   there's no clean way to put independent labels at each cell's two edges
   without custom canvas rendering; the range label conveys the same
   information without fighting the library.
+- **Suspected ad-hoc closures** (`data_access._suspected_closure_dates`):
+  typhoon days etc. have no entry in the fixed weekly hours table
+  (`hours._HOURS`) since they're unscheduled, so they're inferred from the
+  data instead — if every known venue reads a real (`source_status == "ok"`)
+  `0` for `config.SUSPECTED_CLOSURE_MIN_SLOTS` (3) or more *consecutive*
+  10-min slots, that date is flagged. Requiring **all** venues to be zero
+  *together*, for a run this long, rules out an ordinary quiet slot at one
+  venue (single-venue, brief) without needing a maintained calendar of
+  ad-hoc closures. Flagged dates are excluded from `_historical_ok()`, the
+  df every historical aggregate (`get_profile`, `get_heatmap`, the forecast
+  baseline) reads from, so one typhoon day doesn't drag down a weekday/slot's
+  average; `get_current`/`get_forecast`'s `actual` line intentionally still
+  read from the raw (unfiltered) data, so a suspected-closure day still shows
+  what was actually recorded — only the *historical average* treats it as
+  noise. `data_access.get_closure_notice()` surfaces today's flag (if any);
+  `app._closure_notice()` is what the dashboard actually reads from — it
+  layers this ad-hoc heuristic under a first, *definite* check against the
+  fixed weekly hours table (`hours.is_open()`), so the same banner also
+  covers ordinary non-opening hours (every night, Sunday evening, ...), not
+  just the ad-hoc/typhoon case. `{"kind": "scheduled", ...}` (outside the
+  table; takes priority) vs. `{"kind": "suspected", ...}` (inside the table,
+  heuristic fired) — `partials/current.html` renders a different message for
+  each.
 
 ---
 

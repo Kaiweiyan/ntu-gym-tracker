@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ntu_gym_tracker import data_access as data
-from ntu_gym_tracker.hours import now_taipei
+from ntu_gym_tracker.hours import is_open, now_taipei, open_close
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -31,6 +31,26 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 def _day_label(dt) -> str:
     """e.g. '7/1 (三)' — for the forecast day toggle."""
     return f"{dt.month}/{dt.day} ({data.WEEKDAY_ZH[dt.weekday()]})"
+
+
+def _closure_notice() -> dict | None:
+    """Today's closure banner for the dashboard, one of two kinds:
+
+    - "scheduled": right now falls outside the fixed weekly hours table
+      (`hours._HOURS`) — a definite fact, no heuristic needed, and takes
+      priority since it also covers every ordinary night/off-day.
+    - "suspected": we're inside opening hours, but `data.get_closure_notice()`
+      flags an unscheduled closure today (e.g. a typhoon day) — see
+      `data_access._suspected_closure_dates`.
+
+    None the rest of the time.
+    """
+    now = now_taipei()
+    if not is_open(now):
+        open_t, close_t = open_close(now.weekday())
+        return {"kind": "scheduled", "open": f"{open_t:%H:%M}", "close": f"{close_t:%H:%M}"}
+    notice = data.get_closure_notice()
+    return {"kind": "suspected", **notice} if notice else None
 
 
 def _static_version() -> str:
@@ -59,7 +79,11 @@ def api_venues() -> list[dict]:
 
 @app.get("/api/current")
 def api_current() -> dict:
-    return {"venues": data.get_current(), "weather": data.get_current_weather()}
+    return {
+        "venues": data.get_current(),
+        "weather": data.get_current_weather(),
+        "closure_notice": _closure_notice(),
+    }
 
 
 @app.get("/api/heatmap")
@@ -100,5 +124,9 @@ def partial_current(request: Request):
     return templates.TemplateResponse(
         request,
         "partials/current.html",
-        {"venues": data.get_current(), "weather": data.get_current_weather()},
+        {
+            "venues": data.get_current(),
+            "weather": data.get_current_weather(),
+            "closure_notice": _closure_notice(),
+        },
     )
