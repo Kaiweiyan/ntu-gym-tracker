@@ -97,12 +97,50 @@ uv run uvicorn app:app --host 0.0.0.0 --port 8000     # serve
 | `GET /api/profile` | Mean per 10-min slot; params `venue`, `days`.     |
 | `GET /api/heatmap` | Weekday × hour average matrix; param `venue`.     |
 
+## Manual CSV editing (`csv_tool.py`)
+
+For quick manual fixes to `data/occupancy.csv` — correcting a bad reading, backfilling a
+value you know from memory, purging a bad scrape run — `csv_tool.py` loads the CSV into an
+in-memory SQLite table so you can query/edit it with real SQL, instead of hand-editing the
+file. Nothing touches disk until you review a preview and confirm; the previous file is
+always backed up first (`data/occupancy.csv.bak.<timestamp>`).
+
+```bash
+uv run csv_tool.py schema                             # column names/types
+uv run csv_tool.py query "<a SELECT statement>"        # read-only, prints a table
+uv run csv_tool.py exec "<one UPDATE/DELETE/INSERT>"   # previewed, then confirmed, before writing
+```
+
+Examples:
+
+```bash
+# List every fetch/parse failure so far
+uv run csv_tool.py query "SELECT * FROM occupancy WHERE source_status LIKE '%error%'"
+
+# Fix a row you know the real count for
+uv run csv_tool.py exec "UPDATE occupancy SET current_count=45, source_status='ok'
+    WHERE scraped_at='2026-07-01T12:10:00+00:00' AND venue_id='_parse'"
+
+# Delete every row for one day (e.g. purging a bad scrape run)
+uv run csv_tool.py exec "DELETE FROM occupancy WHERE scraped_at LIKE '2026-07-10%'"
+```
+
+`scraped_at` is stored in UTC, not Taipei local time — but since the venues never open
+before 08:00 Taipei (= 00:00 UTC, see `hours.py`), a plain `LIKE '<date>%'` prefix still
+lines up exactly with the intended Taipei calendar day.
+
+`exec` only accepts one statement at a time (no `;`-separated batches), refuses to write if
+the file changed on disk since it was loaded (the collector may have appended a row while
+you were reading the preview), and always makes a backup before touching the real file — so
+a bad edit is a `mv occupancy.csv.bak.<timestamp> occupancy.csv` away from undone.
+
 ## Project structure
 
 ```
 ntu_gym_tracker/      # package: config, scraper, parser, hours, storage, data_access, forecast_model
 app.py                # FastAPI app (JSON API + dashboard)
 collector.py          # collector: always-on loop, or --once for cron
+csv_tool.py           # SQL-like CLI for manually inspecting/editing data/occupancy.csv
 templates/ static/    # Jinja2 templates + CSS
 scripts/              # cron wrapper + systemd unit
 data/                 # occupancy.csv (the data store)

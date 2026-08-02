@@ -7,6 +7,27 @@ live in `spec.md`.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-08-02 — csv_tool.py
+
+### Added
+- **`csv_tool.py`**: SQL-like CLI for manually inspecting/editing
+  `data/occupancy.csv` — `schema`, `query` (read-only `SELECT`), and `exec`
+  (a single `UPDATE`/`DELETE`/`INSERT`, previewed and confirmed before
+  anything is written). Loads the CSV into an in-memory SQLite table so
+  `exec` gets real `WHERE` semantics; always backs up the previous file
+  before writing; refuses to write if the file changed on disk while you
+  were deciding (checked *after* the confirmation prompt, since that's the
+  actual race window — the collector could append a row while you're
+  reading the diff). Missing/invalid arguments and `--help` both print the
+  full command help, not just a usage line. See README's new "Manual CSV
+  editing" section for examples.
+
+### Fixed
+- pyright error in `forecast_model._fill_short_gaps` (arithmetic on
+  `float | None`): the loop's own bounds already guarantee `left`/`right`
+  are non-`None`, but that's invisible to the type checker through list
+  indexing — added an explicit `assert` to narrow it.
+
 ## [0.4.1] - 2026-07-12 — Ad-hoc closure detection, retry fix, forecast_model split
 
 ### Added

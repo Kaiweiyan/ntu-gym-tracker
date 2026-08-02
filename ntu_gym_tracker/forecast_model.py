@@ -149,6 +149,7 @@ def _fill_short_gaps(values: list[float | None]) -> list[float | None]:
         gap_len = j - i
         if i > 0 and j < n and gap_len <= MAX_INTERP_GAP_SLOTS:
             left, right = filled[i - 1], filled[j]
+            assert left is not None and right is not None
             for k in range(gap_len):
                 filled[i + k] = round(left + (right - left) * (k + 1) / (gap_len + 1), 1)
         i = j

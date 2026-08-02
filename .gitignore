@@ -7,6 +7,9 @@ __pycache__/
 # may be committed as an off-machine backup (the collector runs on the workstation).
 *.db
 
+# csv_tool.py's pre-write safety backups — local recovery only, not for git history.
+*.csv.bak.*
+
 # Runtime logs
 logs/
 *.log

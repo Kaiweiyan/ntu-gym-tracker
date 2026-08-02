@@ -74,6 +74,48 @@ original roadmap and `CHANGELOG.md` for release-by-release history.
 
 ---
 
+## Manual CSV editing (`csv_tool.py`)
+
+- SQL-like CLI for hand-fixing `data/occupancy.csv` (backfilling a known
+  value, purging a bad scrape run) without touching the file directly.
+  `schema` / `query` (read-only `SELECT`) / `exec` (a single
+  `UPDATE`/`DELETE`/`INSERT`). Deliberately **not** a general SQL shell:
+  `exec` refuses multiple `;`-separated statements so its diff preview stays
+  trustworthy, and `query` can never write since its SQLite connection is
+  never passed to `_write()`.
+- Loads the whole CSV into an **in-memory SQLite table** (small enough —
+  thousands of rows — that this costs nothing) rather than doing string-level
+  CSV surgery, so `exec` gets real `WHERE` semantics for free instead of a
+  hand-rolled filter DSL.
+- `exec`'s flow: load → snapshot the table (keyed by SQLite `rowid`, our only
+  stand-in for a primary key) → run the statement → snapshot again → diff the
+  two snapshots by `rowid` (present-only-before = deleted, present-only-after
+  = inserted, present-both-but-changed = updated) → print the diff → ask
+  `y/N`. **Nothing touches `occupancy.csv` until that confirmation returns
+  `y`** — an aborted or crashed run leaves the file exactly as it was, no
+  transaction/rollback machinery needed because the CSV was never opened for
+  writing in the first place.
+- The disk-mtime check (was the file appended to by the collector while we
+  were deciding?) runs **after** the `y/N` prompt returns, not before —
+  the real race window is however long a human sits at the prompt, not the
+  brief load+diff before it. (Caught by testing: an earlier version checked
+  before the prompt and missed exactly this case.)
+- A confirmed write always makes a `<file>.name.bak.<UTC timestamp>` copy
+  first (`.gitignore`d — local recovery only, not meant for git history) via
+  `shutil.copy2` before `_write()` overwrites the original, so a bad edit is
+  one `mv` away from undone.
+- `_write()` reuses `storage.CSV_FIELDS` and `storage._blank()` (the same
+  column order and `None`→`""` convention the collector's own writer uses),
+  so a row edited by hand and a row appended by the collector are
+  byte-for-byte indistinguishable in the file.
+- Rows keep the CSV's original order after a write (`ORDER BY rowid` on
+  write-back preserves insertion order); a manually `INSERT`ed row lands at
+  the end regardless of its `scraped_at`, since SQLite assigns `rowid`s by
+  insertion order, not by any column's value — fine for a one-off backfill,
+  but worth knowing if you insert several out-of-order rows in one session.
+
+---
+
 ## Web app (`app.py`, `ntu_gym_tracker/data_access.py`, `ntu_gym_tracker/forecast_model.py`)
 
 FastAPI + Jinja2 + ECharts + HTMX. Routes: `/api/venues`, `/api/current`,
