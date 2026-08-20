@@ -33,46 +33,27 @@ VENUE_CAPACITY: dict[str, dict[str, int]] = {
     "pool": {"optimal_count": 50, "max_capacity": 130},
 }
 
-# --- Weather (Open-Meteo: free, no API key, has historical archive too) ---
-# NTU Sports Center (綜合體育館), where the gym & pool are. Note: Open-Meteo
-# snaps any coordinate to its model grid (~0.1°/~11km), so this precise point is
-# symbolic — temperature/humidity at city scale are unaffected by the snap. For
-# hyper-local rainfall, a CWA station would be the accurate source (future work).
-NTU_LATITUDE = 25.0203
-NTU_LONGITUDE = 121.5350
-OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
-# WMO-standard current fields we log per cycle (lean but reusable later).
-OPEN_METEO_CURRENT_FIELDS = (
-    "temperature_2m,apparent_temperature,relative_humidity_2m,"
-    "precipitation,weather_code,wind_speed_10m"
-)
-
 # --- Forecast ---
 # Baseline strategy for get_forecast()'s predicted curve. One of the keys in
-# `data_access._FORECAST_STRATEGIES`:
+# `forecast_model._STRATEGIES`:
 #   "same_weekday_mean" — mean per 10-min slot across all historical days that
 #                          share the target day's weekday (e.g. forecasting a
 #                          Monday only averages over past Mondays).
 #   "recent_mean"       — mean per 10-min slot across the last
 #                         FORECAST_RECENT_DAYS days, regardless of weekday.
 # To add a model-based strategy once there's enough data: write a function
-# `(df, target_date) -> dict[str, float]` in data_access.py, register it in
-# `_FORECAST_STRATEGIES`, and point this at its key — get_forecast() itself
-# doesn't change.
+# `(df, target_date) -> dict[str, float]` in forecast_model.py, register it
+# in `_STRATEGIES`, and point this at its key — forecast_model.forecast()
+# itself doesn't change.
 FORECAST_METHOD = "same_weekday_mean"
 FORECAST_RECENT_DAYS = 30  # window used by the "recent_mean" strategy
 
-# --- Suspected ad-hoc closures (typhoon days, etc.) ---
-# These aren't in the fixed weekly hours table (hours._HOURS) since they're
-# unscheduled, so they're inferred from the data instead: if every known venue
-# reads a real ("ok") 0 for this many consecutive 10-min slots, treat that day
-# as a suspected closure (surfaced as a dashboard badge, and excluded from
-# historical averages so it doesn't drag down profile/heatmap/forecast).
-SUSPECTED_CLOSURE_MIN_SLOTS = 3  # 3 slots = 30 min of all-venue zero readings
-
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-# Occupancy is long-format (one row per venue). Weather is NOT stored — it's
-# shown live on the dashboard and can be backfilled from Open-Meteo's archive
-# for training.
+# Occupancy is long-format (one row per venue).
 CSV_PATH = _DATA_DIR / "occupancy.csv"
+
+# Manually-maintained calendar of whole-day closures (holidays, typhoon days,
+# maintenance, ...) — see closures.py. Hand-edit directly: `date, end_date,
+# reason`, one row per closure range (`end_date` blank means a single day).
+CLOSURES_PATH = _DATA_DIR / "closures.csv"

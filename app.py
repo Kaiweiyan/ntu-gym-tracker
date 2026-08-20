@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ntu_gym_tracker import data_access as data
+from ntu_gym_tracker.closures import closures_on
 from ntu_gym_tracker.hours import is_open, now_taipei, open_close
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -33,24 +34,36 @@ def _day_label(dt) -> str:
     return f"{dt.month}/{dt.day} ({data.WEEKDAY_ZH[dt.weekday()]})"
 
 
-def _closure_notice() -> dict | None:
-    """Today's closure banner for the dashboard, one of two kinds:
+def _venue_closures() -> dict[str, dict]:
+    """Today's manual closures per venue (see `closures.py`), for the
+    per-card closed-with-reason display: `{venue_id: {"reason": ...,
+    "range": "8/17–9/20", "multi_day": True}}`. `range` is only meant to be
+    shown when `multi_day` — for a single declared day, "today" already
+    says it, so a date would be redundant. Independent per venue: gym being
+    closed doesn't imply anything about pool.
+    """
+    out = {}
+    for vid, closure in closures_on(now_taipei().date()).items():
+        start, end = closure.start, closure.end
+        out[vid] = {
+            "reason": closure.reason,
+            "range": f"{start.month}/{start.day}–{end.month}/{end.day}",
+            "multi_day": closure.multi_day,
+        }
+    return out
 
-    - "scheduled": right now falls outside the fixed weekly hours table
-      (`hours._HOURS`) — a definite fact, no heuristic needed, and takes
-      priority since it also covers every ordinary night/off-day.
-    - "suspected": we're inside opening hours, but `data.get_closure_notice()`
-      flags an unscheduled closure today (e.g. a typhoon day) — see
-      `data_access._suspected_closure_dates`.
 
-    None the rest of the time.
+def _scheduled_closure() -> dict | None:
+    """Page-level banner for ordinary non-opening hours (every night,
+    Sunday evening, ...) — from the fixed weekly hours table
+    (`hours._HOURS`), shared by every venue alike, unlike the per-venue
+    manual closures above.
     """
     now = now_taipei()
-    if not is_open(now):
-        open_t, close_t = open_close(now.weekday())
-        return {"kind": "scheduled", "open": f"{open_t:%H:%M}", "close": f"{close_t:%H:%M}"}
-    notice = data.get_closure_notice()
-    return {"kind": "suspected", **notice} if notice else None
+    if is_open(now):
+        return None
+    open_t, close_t = open_close(now.weekday())
+    return {"open": f"{open_t:%H:%M}", "close": f"{close_t:%H:%M}"}
 
 
 def _static_version() -> str:
@@ -81,8 +94,8 @@ def api_venues() -> list[dict]:
 def api_current() -> dict:
     return {
         "venues": data.get_current(),
-        "weather": data.get_current_weather(),
-        "closure_notice": _closure_notice(),
+        "venue_closures": _venue_closures(),
+        "scheduled_closure": _scheduled_closure(),
     }
 
 
@@ -126,7 +139,7 @@ def partial_current(request: Request):
         "partials/current.html",
         {
             "venues": data.get_current(),
-            "weather": data.get_current_weather(),
-            "closure_notice": _closure_notice(),
+            "venue_closures": _venue_closures(),
+            "scheduled_closure": _scheduled_closure(),
         },
     )

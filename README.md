@@ -30,13 +30,12 @@ an average-day profile.
 ```
 
 The occupancy numbers are server-rendered in the page's HTML, so a plain HTTP GET
-(no headless browser) is enough. Weather is shown **live** from Open-Meteo and is
-not stored — historical weather can be backfilled from its archive for training.
+(no headless browser) is enough.
 
 ## Features
 
 - **Live occupancy** per venue with an absolute busyness level (vs. the
-  venue's own optimal_count) and live weather (auto-refreshing via HTMX).
+  venue's own optimal_count), auto-refreshing via HTMX.
 - **Occupancy forecast**: today/tomorrow, actual readings meeting a baseline
   forecast line (configurable strategy, see `config.FORECAST_METHOD`).
 - **Average-day profile**: mean occupancy per 10-minute slot over the last N days.
@@ -44,10 +43,11 @@ not stored — historical weather can be backfilled from its archive for trainin
 - **Opening-hours aware** collection: a single `count=0` marker is recorded at the
   open and close ticks (kept distinct via `source_status` so it can be excluded
   from training); failed fetches are recorded as rows, never as a misleading `0`.
-- **Suspected ad-hoc closure detection**: an unscheduled closure (e.g. a
-  typhoon day) isn't in the fixed weekly hours table, so it's inferred from
-  the data — all venues reading 0 together for long enough flags a dashboard
-  banner and excludes that day from the historical averages.
+- **Manually declared closures** (holidays, typhoon days, maintenance), per
+  venue: a hand-maintained calendar (`data/closures.csv`) the collector
+  checks before every scrape, so a declared venue is never scraped that day
+  — independent of the other venue, which keeps its normal schedule. The
+  reason (and date range, if multi-day) shows right on that venue's card.
 
 ## Tech stack
 
@@ -58,7 +58,6 @@ not stored — historical weather can be backfilled from its archive for trainin
 | Data       | `pandas`, CSV (long format)                        |
 | Web / API  | `FastAPI`, `uvicorn`, `Jinja2`                     |
 | Charts     | Apache ECharts + HTMX (via CDN)                    |
-| Weather    | [Open-Meteo](https://open-meteo.com/) (no API key) |
 
 ## Getting started
 
@@ -92,7 +91,7 @@ uv run uvicorn app:app --host 0.0.0.0 --port 8000     # serve
 | Endpoint        | Description                                          |
 | --------------- | ---------------------------------------------------- |
 | `GET /api/venues`  | Known venues (`id`, `name`).                      |
-| `GET /api/current` | Latest count per venue + live weather.            |
+| `GET /api/current` | Latest count per venue.                           |
 | `GET /api/forecast` | Actual + forecast curve; params `venue`, `day`.  |
 | `GET /api/profile` | Mean per 10-min slot; params `venue`, `days`.     |
 | `GET /api/heatmap` | Weekday × hour average matrix; param `venue`.     |
@@ -134,19 +133,51 @@ the file changed on disk since it was loaded (the collector may have appended a 
 you were reading the preview), and always makes a backup before touching the real file — so
 a bad edit is a `mv occupancy.csv.bak.<timestamp> occupancy.csv` away from undone.
 
+## Declaring a closure (`data/closures.csv`)
+
+Gym and pool are independent venues with independent schedules, so closures are declared
+per venue. For a holiday, typhoon day, or maintenance closure — known in advance or
+announced same-day — add a row to `data/closures.csv` by hand:
+
+```csv
+venue_id,date,end_date,reason
+gym,2026-07-10,2026-07-11,颱風假
+pool,2026-09-01,,單日清潔
+,2026-12-25,,館內全面消毒
+```
+
+`venue_id` is `gym` or `pool` for a closure specific to that venue, or left blank to close
+*every* venue (a whole-building closure) — the two calendars are otherwise independent, so
+declaring gym closed has no effect on pool. `end_date` blank means a single day.
+
+The collector checks this file before every scrape, per venue — a declared venue (today or a
+future date registered ahead of time) is never scraped, even if the other venue is open and
+gets scraped normally. It records one `venue_closed: <reason>` marker instead and skips that
+venue for the rest of the day. The dashboard shows the reason (and the date range, for a
+multi-day closure) right on that venue's card, as soon as the file is updated — no need to
+wait for the collector's next cycle.
+
+If a day was already scraped normally *before* you declared it a closure, fix up the
+already-recorded rows by hand with `csv_tool.py`, e.g.:
+
+```bash
+uv run csv_tool.py exec "UPDATE occupancy SET current_count=NULL,
+    source_status='venue_closed: 颱風假' WHERE scraped_at LIKE '2026-07-10%' AND venue_id='gym'"
+```
+
 ## Project structure
 
 ```
-ntu_gym_tracker/      # package: config, scraper, parser, hours, storage, data_access, forecast_model
+ntu_gym_tracker/      # package: config, scraper, parser, hours, closures, storage, data_access, forecast_model
 app.py                # FastAPI app (JSON API + dashboard)
 collector.py          # collector: always-on loop, or --once for cron
 csv_tool.py           # SQL-like CLI for manually inspecting/editing data/occupancy.csv
 templates/ static/    # Jinja2 templates + CSS
 scripts/              # cron wrapper + systemd unit
-data/                 # occupancy.csv (the data store)
+data/                 # occupancy.csv (the data store), closures.csv (manual closure calendar)
 ```
 
 ## Roadmap
 
-Occupancy forecasting (calendar + weather + lag features). See `CHANGELOG.md` for
+Occupancy forecasting (calendar + lag features). See `CHANGELOG.md` for
 released versions and `spec.md` for implementation details.

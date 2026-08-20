@@ -47,9 +47,11 @@ Table: occupancy  (backed by {path})
   venue_name     TEXT     raw name from the page, e.g. '健身中心'
   scraped_at     TEXT     ISO-8601 UTC, e.g. '2026-07-01T12:10:00+00:00'
                           (NOT Taipei local time — see README for the gotcha)
-  current_count  INTEGER  NULL for a fetch/parse error row
+  current_count  INTEGER  NULL for a fetch/parse error, or a manually
+                          declared closure (see closures.py)
   source_status  TEXT     'ok' | 'open' | 'closed' |
-                          'fetch_error: ...' | 'parse_error: ...'
+                          'fetch_error: ...' | 'parse_error: ...' |
+                          'venue_closed: <reason>'
 """
 
 

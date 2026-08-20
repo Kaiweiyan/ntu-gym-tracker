@@ -1,31 +1,23 @@
 {# Live occupancy cards. Rendered standalone and swapped in by HTMX every 60s. #}
-{% if closure_notice %}
-  {% if closure_notice.kind == "scheduled" %}
-  <p class="closure-notice closure-scheduled">
-    🌙 目前非開放時間（今日開放時間 {{ closure_notice.open }}–{{ closure_notice.close }}），
-    以下為最後更新的資料。
-  </p>
-  {% else %}
-  <p class="closure-notice closure-suspected">
-    ⚠️ 系統偵測到今日各時段人數持續為 0，可能臨時休館（如颱風假），以下資料僅供參考。
-  </p>
-  {% endif %}
-{% endif %}
-{% if weather %}
-<p class="weather">
-  目前天氣 {{ weather.temperature_c }}°C
-  (體感 {{ weather.apparent_temperature_c }}°C)
-  · 降雨 {{ weather.precipitation_mm }}mm
-  <span class="muted">更新於 {{ weather.local_time }}</span>
+{% if scheduled_closure %}
+<p class="closure-notice closure-scheduled">
+  🌙 目前非開放時間（今日開放時間 {{ scheduled_closure.open }}–{{ scheduled_closure.close }}）。
 </p>
 {% endif %}
 
 <div class="cards">
   {% for v in venues %}
-  <div class="card {{ 'card-closed' if closure_notice else 'busyness-' ~ v.busyness }}">
+  {% set vc = venue_closures.get(v.venue_id) %}
+  <div class="card {{ 'card-closed-manual' if vc else ('card-closed' if scheduled_closure else 'busyness-' ~ v.busyness) }}">
     <div class="card-name">{{ v.venue_name }}</div>
-    {% if closure_notice %}
+    {% if vc %}
     <div class="card-count card-closed-label">休館中</div>
+    <div class="card-closed-detail muted">
+      {{ vc.reason }}{% if vc.multi_day %}（{{ vc.range }}）{% endif %}
+    </div>
+    {% elif scheduled_closure %}
+    <div class="card-count card-closed-label">休館中</div>
+    <div class="card-time muted">更新於 {{ v.local_time }}</div>
     {% else %}
     <div class="card-count">{{ v.current_count }}<span class="unit"> 人</span></div>
     {% if v.occupancy_pct is not none %}
@@ -38,8 +30,8 @@
       {% else %}— {% endif %}
       {% if v.typical_count is not none %}<span class="muted">(此時段平均 {{ v.typical_count }})</span>{% endif %}
     </div>
-    {% endif %}
     <div class="card-time muted">更新於 {{ v.local_time }}</div>
+    {% endif %}
   </div>
   {% else %}
   <p class="muted">目前沒有資料（可能尚未開始收集，或現在休館）。</p>

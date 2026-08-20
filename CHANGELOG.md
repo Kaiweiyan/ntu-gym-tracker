@@ -7,6 +7,61 @@ live in `spec.md`.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-07 — Manual closures, drop weather
+
+### Added
+- **Manually declared closures, independent per venue**: `data/closures.csv`
+  (`venue_id, date, end_date, reason`, hand-edited) replaces the removed
+  ad-hoc heuristic below. Gym and pool have separate calendars — a row's
+  `venue_id` targets one venue, or is left blank to close every venue at
+  once (e.g. a whole-building closure). The collector checks it before
+  every scrape, per venue — a declared venue (today or a pre-registered
+  future date) is never scraped, even while another venue stays open and
+  keeps its normal schedule; it records one `current_count=NULL,
+  source_status="venue_closed: <reason>"` marker instead and skips that
+  venue for the rest of the day. `NULL` (not `0`) means these rows are
+  automatically excluded from every historical aggregate/forecast, the same
+  way a fetch/parse error already is — no new filtering logic needed. Each
+  venue's card shows its own reason (and the date range, for a multi-day
+  closure) right below "休館中"; the shared after-hours banner
+  (🌙 目前非開放時間) stays a single page-level banner since it isn't
+  per-venue. A day already scraped normally before being retroactively
+  declared a closure is a manual `csv_tool.py` fix, not automated (see
+  README).
+
+### Removed
+- **Suspected ad-hoc closure detection** (the "every venue reads a real 0 for
+  3+ consecutive slots" heuristic added in 0.4.1): too easy for an ordinary
+  quiet stretch to look like a closure, and too indirect compared to just
+  recording known closure dates. `data_access._suspected_closure_dates()`,
+  `_historical_ok()`, and `get_closure_notice()` are gone;
+  `get_profile()`/`get_heatmap()`/`get_forecast()` read straight from
+  `_occupancy_ok()` again. `forecast_model.forecast()` drops its `hist`
+  parameter (back to just `df`). The dashboard's shared after-hours banner
+  (`app._scheduled_closure()`) still covers ordinary non-opening hours (that
+  part was independent of the heuristic) but no longer has an ad-hoc/typhoon
+  variant — replaced by the manually declared closures above.
+  `config.SUSPECTED_CLOSURE_MIN_SLOTS` removed.
+- **Weather**: dropped entirely. `ntu_gym_tracker/weather.py` and
+  `models.WeatherObservation` are gone; `data_access.get_current_weather()`
+  and its ~10-min cache; `config.NTU_LATITUDE`/`NTU_LONGITUDE`/
+  `OPEN_METEO_URL`/`OPEN_METEO_CURRENT_FIELDS`. `/api/current` and the
+  `/partials/current` HTMX fragment no longer return/render a `weather`
+  field; the live-weather line and its `.weather` CSS rule are gone from the
+  dashboard.
+
+### Fixed
+- A blank `reason` cell in `closures.csv` is normalized to a placeholder
+  ("未說明原因") while the file is loaded instead of passing through empty —
+  an empty reason used to produce a bare `venue_closed: ` status in the CSV
+  and an empty reason line on the dashboard.
+- `csv_tool.py`'s `schema` output was missing `venue_closed: <reason>` from
+  the `source_status` value list (stale since the closures feature was
+  added after `csv_tool.py` was built).
+- `ntu_gym_tracker/__version__` was still `"0.1.0"`, unrelated to
+  `pyproject.toml`'s version since the very first release — now kept in
+  sync.
+
 ## [0.4.2] - 2026-08-02 — csv_tool.py
 
 ### Added

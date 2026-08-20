@@ -1,11 +1,10 @@
 """Occupancy forecast: baseline strategies today, a learned model later.
 
-Takes plain DataFrames prepared by `data_access` (already filtered to one
-venue; the historical one has suspected ad-hoc closure days excluded) — this
-module owns no CSV/loading logic of its own, so it stays testable and
-swappable independent of the data layer. `forecast()` is the entry point
-`data_access.get_forecast()` delegates to; `slot_means()` is also reused by
-`data_access.get_profile()`'s (non-forecast) average-day chart.
+Takes a plain DataFrame prepared by `data_access` (already filtered to one
+venue) — this module owns no CSV/loading logic of its own, so it stays
+testable and swappable independent of the data layer. `forecast()` is the
+entry point `data_access.get_forecast()` delegates to; `slot_means()` is also
+reused by `data_access.get_profile()`'s (non-forecast) average-day chart.
 
 Adding a model-based strategy later: write a `(df, target_date) -> {slot:
 mean}` function and register it in `_STRATEGIES` — `forecast()` itself
@@ -26,23 +25,17 @@ def empty_forecast() -> dict:
     return {"slots": [], "actual": [], "forecast": [], "now_slot": None}
 
 
-def forecast(df: pd.DataFrame, hist: pd.DataFrame, day: str = "today") -> dict:
+def forecast(df: pd.DataFrame, day: str = "today") -> dict:
     """Baseline occupancy forecast for `day` ('today' | 'tomorrow'), 10-min slots.
 
-    `df` is one venue's raw "ok" readings (unfiltered) — used for `actual`, so
-    a suspected-closure day still shows what was actually recorded. `hist` is
-    the same venue's readings with suspected ad-hoc closure days excluded —
-    used for the baseline, so a typhoon day doesn't drag down the average for
-    that weekday/slot (see `data_access._historical_ok`).
-
-    Baseline = `config.FORECAST_METHOD` strategy (see `_STRATEGIES`). The
-    forecast line covers the *whole* day (open→close), including the
-    already-elapsed part, so the dashed baseline sits next to the solid
-    `actual` line wherever both exist — that overlap is what lets a user
-    judge how accurate the forecast has been today, not just what it
-    predicts ahead. `actual` holds real readings up to now (short gaps from a
-    missed scrape are interpolated, see `_fill_short_gaps`); for tomorrow
-    it's empty.
+    `df` is one venue's raw "ok" readings. Baseline = `config.FORECAST_METHOD`
+    strategy (see `_STRATEGIES`). The forecast line covers the *whole* day
+    (open→close), including the already-elapsed part, so the dashed baseline
+    sits next to the solid `actual` line wherever both exist — that overlap
+    is what lets a user judge how accurate the forecast has been today, not
+    just what it predicts ahead. `actual` holds real readings up to now
+    (short gaps from a missed scrape are interpolated, see
+    `_fill_short_gaps`); for tomorrow it's empty.
     """
     if df.empty:
         return empty_forecast()
@@ -51,7 +44,7 @@ def forecast(df: pd.DataFrame, hist: pd.DataFrame, day: str = "today") -> dict:
     target_date = now.date() if day == "today" else now.date() + timedelta(days=1)
     slots = _day_slots(*open_close(target_date.weekday()))
 
-    baseline = _baseline(hist, target_date)
+    baseline = _baseline(df, target_date)
     now_slot = f"{now.hour:02d}:{now.minute // SLOT_MINUTES * SLOT_MINUTES:02d}"
     actual_by_slot = (
         slot_means(df.loc[df["local"].dt.date == target_date]) if day == "today" else {}

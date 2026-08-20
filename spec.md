@@ -30,13 +30,51 @@ original roadmap and `CHANGELOG.md` for release-by-release history.
 
 ---
 
-## Collector (`collector.py`, `ntu_gym_tracker/{scraper,parser,storage,hours}.py`)
+## Collector (`collector.py`, `ntu_gym_tracker/{scraper,parser,storage,hours,closures}.py`)
 
 - Always-on loop, slot-aligned to wall-clock `:00/:10/:20…`
   (`seconds_until_next_slot`); also runnable as a single cycle (`--once`) via
   cron (`scripts/run_collector.sh`) or `systemd --user`
   (`scripts/ntu-gym-collector.service`, survives logout via `loginctl
   enable-linger`).
+- **Manually declared closures** (`closures.py`, `data/closures.csv`:
+  `venue_id, date, end_date, reason`) are checked first, before the hours
+  table — holidays/typhoon days/maintenance are unscheduled and can't live
+  in a fixed weekly table, and (an earlier attempt at this) can't be
+  reliably guessed from the occupancy data either, so they're
+  hand-maintained instead. **Independent per venue**: gym and pool have
+  separate calendars, so one can be closed (e.g. for renovation) while the
+  other keeps its normal schedule; a row with a blank `venue_id` applies to
+  every known venue at once (e.g. a whole-building closure), rather than
+  needing one row per venue. `closures_on(d) -> dict[venue_id, Closure]`
+  resolves both cases in one pass — every known venue is checked against
+  its own rows plus any blank-`venue_id` row.
+  - On a declared closure day, `run_once()` writes one
+    `current_count=None, source_status="venue_closed: <reason>"` row for
+    each closed venue at the would-be opening tick (`is_opening_tick()` —
+    the same "write once, at the boundary" pattern as the open/close
+    0-markers below) and skips that venue for every other tick that day; a
+    closed venue is **never scraped**, today or a pre-registered future
+    date, while any other venue that's still open keeps its normal
+    every-10-min scraping. Since a single page fetch returns every venue at
+    once, a scrape still happens whenever *any* venue is open — the closed
+    venue's Observation is then filtered out of the result (dropped even if
+    the page happens to show a number for it) rather than skipping the
+    fetch. `scrape()` is skipped entirely only when *every* known venue is
+    closed that day.
+  - `current_count=None` (not `0`) means these rows fall out of
+    `data_access._occupancy_ok()` automatically — same mechanism as a
+    fetch/parse error — so no separate filtering logic was needed anywhere
+    downstream (profile/heatmap/forecast).
+  - A day that's already been scraped normally *before* being
+    retroactively declared a closure is a manual fix with `csv_tool.py`
+    (`UPDATE occupancy SET current_count=NULL, source_status='venue_closed: ...' WHERE ... AND venue_id='...'`),
+    not automated — rare enough, and human judgment enough, not to warrant
+    a scheduled reconciliation job.
+  - A blank `reason` cell is normalized to a placeholder ("未說明原因")
+    while the CSV is loaded (`closures._load_rows()`) rather than passed
+    through empty into a bare `venue_closed: ` status or an empty
+    closed-card detail line.
 - **Failures become rows, not gaps.** A fetch or parse failure records one row
   with `current_count=NULL` and a descriptive `source_status`
   (`fetch_error: ...` / `parse_error: ...`) — never a fabricated `0`.
@@ -66,11 +104,10 @@ original roadmap and `CHANGELOG.md` for release-by-release history.
 
 - `data/occupancy.csv` — append-only, long format (one row per venue per
   cycle). Schema: `venue_id, venue_name, scraped_at, current_count,
-  source_status`. No SQLite, no separate weather CSV (both removed).
-- Weather is fetched **live** for the dashboard (Open-Meteo, no API key,
-  ~10 min server-side TTL cache) and never stored; historical weather (for
-  future model training) would be backfilled from Open-Meteo's archive
-  on-demand against the occupancy timestamps.
+  source_status`. No SQLite.
+- `data/closures.csv` — the manually-maintained closure calendar (see
+  "Manually declared closures" above); small enough to commit and hand-edit
+  directly, unlike the occupancy log.
 
 ---
 
@@ -143,17 +180,15 @@ FastAPI + Jinja2 + ECharts + HTMX. Routes: `/api/venues`, `/api/current`,
   it crowded right now" rather than "busier than usual for this hour".
 - **Forecast** (`forecast_model.py`): all forecast logic — baselines, the
   strategy registry, gap-fill, rounding — lives here, not in `data_access.py`.
-  `data_access.get_forecast()` is a thin wrapper: it resolves the venue's raw
-  readings (`df`, for `actual`) and closure-excluded historical readings
-  (`hist`, for the baseline, via `_historical_ok()`), then calls
-  `forecast_model.forecast(df, hist, day)`, which owns no CSV/loading logic
-  of its own — kept swappable/testable independent of the data layer, and
-  the natural home for a learned model later. Baseline is picked via a
-  swappable strategy registry — `config.FORECAST_METHOD` selects a key in
-  `forecast_model._STRATEGIES`. Current strategies: `same_weekday_mean`
-  (default — mean per slot over historical days sharing the target weekday)
-  and `recent_mean` (rolling `FORECAST_RECENT_DAYS`-day window, any
-  weekday). Adding a model later means writing one more
+  `data_access.get_forecast()` is a thin wrapper: it resolves the venue's
+  readings (`df`) and calls `forecast_model.forecast(df, day)`, which owns no
+  CSV/loading logic of its own — kept swappable/testable independent of the
+  data layer, and the natural home for a learned model later. Baseline is
+  picked via a swappable strategy registry — `config.FORECAST_METHOD`
+  selects a key in `forecast_model._STRATEGIES`. Current strategies:
+  `same_weekday_mean` (default — mean per slot over historical days sharing
+  the target weekday) and `recent_mean` (rolling `FORECAST_RECENT_DAYS`-day
+  window, any weekday). Adding a model later means writing one more
   `(df, target_date) -> {slot: mean}` function and registering it —
   `forecast_model.forecast()` itself doesn't change. The baseline is drawn
   for the **entire** day (not just from "now" on), so actual and forecast
@@ -170,35 +205,31 @@ FastAPI + Jinja2 + ECharts + HTMX. Routes: `/api/venues`, `/api/current`,
   there's no clean way to put independent labels at each cell's two edges
   without custom canvas rendering; the range label conveys the same
   information without fighting the library.
-- **Suspected ad-hoc closures** (`data_access._suspected_closure_dates`):
-  typhoon days etc. have no entry in the fixed weekly hours table
-  (`hours._HOURS`) since they're unscheduled, so they're inferred from the
-  data instead — if every known venue reads a real (`source_status == "ok"`)
-  `0` for `config.SUSPECTED_CLOSURE_MIN_SLOTS` (3) or more *consecutive*
-  10-min slots, that date is flagged. Requiring **all** venues to be zero
-  *together*, for a run this long, rules out an ordinary quiet slot at one
-  venue (single-venue, brief) without needing a maintained calendar of
-  ad-hoc closures. Flagged dates are excluded from `_historical_ok()`, the
-  df every historical aggregate (`get_profile`, `get_heatmap`, the forecast
-  baseline) reads from, so one typhoon day doesn't drag down a weekday/slot's
-  average; `get_current`/`get_forecast`'s `actual` line intentionally still
-  read from the raw (unfiltered) data, so a suspected-closure day still shows
-  what was actually recorded — only the *historical average* treats it as
-  noise. `data_access.get_closure_notice()` surfaces today's flag (if any);
-  `app._closure_notice()` is what the dashboard actually reads from — it
-  layers this ad-hoc heuristic under a first, *definite* check against the
-  fixed weekly hours table (`hours.is_open()`), so the same banner also
-  covers ordinary non-opening hours (every night, Sunday evening, ...), not
-  just the ad-hoc/typhoon case. `{"kind": "scheduled", ...}` (outside the
-  table; takes priority) vs. `{"kind": "suspected", ...}` (inside the table,
-  heuristic fired) — `partials/current.html` renders a different message for
-  each.
+- **Closure display** is split across two independent pieces, because manual
+  closures are per-venue but the weekly hours table is shared:
+  - `app._venue_closures()` returns `{venue_id: {reason, range, multi_day}}`
+    for today (via `closures.closures_on()`) — rendered on *that venue's
+    card* (`休館中` + reason, plus the date range only when `multi_day`, per
+    `partials/current.html`), since it's meaningful even during what would
+    otherwise be business hours (a holiday at 2pm should say so, not defer
+    to "well it's within business hours" clock logic).
+  - `app._scheduled_closure()` is the page-level `🌙 目前非開放時間` banner
+    for ordinary non-opening hours (`hours.is_open()`) — shared by every
+    venue alike, so it stays a single banner rather than per-card.
+  - A card with no `_venue_closures()` entry falls back to the generic
+    "休館中" (no reason line, no date) whenever `_scheduled_closure()` is
+    set, and to its normal count/busyness otherwise.
+  - (A prior version instead tried inferring *unscheduled* closures from
+    the data itself — every venue reading a real 0 for several consecutive
+    slots; that heuristic was removed for being both unreliable and more
+    indirect than just recording the known date, which is what
+    `closures.py` replaced it with.)
 
 ---
 
 ## Frontend (`templates/`)
 
-`index.html` section order, top to bottom: 現在人數 (live cards + weather,
+`index.html` section order, top to bottom: 現在人數 (live cards,
 HTMX-refreshed) → 場館選擇 (one global venue toggle, drives every chart below
 it) → 人數預測 → 各時段平均人數 → 各時段熱門程度 (heatmap). There is no
 trend/history chart — it was removed for not pulling its weight, along with

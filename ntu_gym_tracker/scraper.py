@@ -21,7 +21,6 @@ from .config import (
     REQUEST_TIMEOUT_SECONDS,
     SOURCE_URL,
     USER_AGENT,
-    VENUE_ID_BY_NAME,
 )
 from .models import Observation
 from .parser import parse_observations
@@ -49,12 +48,11 @@ def fetch_html(url: str = SOURCE_URL) -> str:
 def scrape(scraped_at: str | None = None) -> list[Observation]:
     """Run one scrape cycle, never raising — failures become rows instead.
 
-    Pass `scraped_at` to share one timestamp across occupancy + weather rows of
-    the same cycle (so the two CSVs join exactly); defaults to now (UTC) if
-    omitted. Either way it's captured once, up front, and reused unchanged
-    across every retry below — a retry re-samples occupancy for the *same*
-    scheduled tick, it does not shift the tick to whenever the retry happens
-    to actually run.
+    Pass `scraped_at` to pin the row(s) to the caller's cycle timestamp;
+    defaults to now (UTC) if omitted. Either way it's captured once, up
+    front, and reused unchanged across every retry below — a retry
+    re-samples occupancy for the *same* scheduled tick, it does not shift
+    the tick to whenever the retry happens to actually run.
 
     Retries the fetch+parse pair up to `FETCH_RETRIES` times with exponential
     backoff (`FETCH_RETRY_BACKOFF_SECONDS`) before giving up for the cycle.
@@ -92,21 +90,37 @@ def scrape(scraped_at: str | None = None) -> list[Observation]:
     ]
 
 
-def zero_observations(scraped_at: str, status: str) -> list[Observation]:
-    """One count=0 row per known venue, marking an open/close boundary.
+def zero_observation(venue_id: str, venue_name: str, scraped_at: str, status: str) -> Observation:
+    """A single count=0 row, marking an open/close boundary for one venue.
 
     Used at the opening tick (the site can show a stale non-zero right at open)
     and the closing tick (curve returns to 0). `status` is "open"/"closed" for
     provenance; aggregation includes these rows because the count is non-null.
     We don't hit the site for boundary markers.
     """
-    return [
-        Observation(
-            venue_id=venue_id,
-            venue_name=venue_name,
-            scraped_at=scraped_at,
-            current_count=0,
-            source_status=status,
-        )
-        for venue_name, venue_id in VENUE_ID_BY_NAME.items()
-    ]
+    return Observation(
+        venue_id=venue_id,
+        venue_name=venue_name,
+        scraped_at=scraped_at,
+        current_count=0,
+        source_status=status,
+    )
+
+
+def closed_observation(venue_id: str, venue_name: str, scraped_at: str, reason: str) -> Observation:
+    """A single current_count=None row, marking a manually declared closure
+    for one venue (see `closures.py`) — written once, at what would have
+    been the opening tick, instead of scraping that venue all day.
+
+    None (not 0) is deliberate: it keeps this row excluded from
+    `data_access._occupancy_ok()` (and therefore every historical
+    aggregate/forecast) the same way a fetch/parse error already is — we
+    didn't observe an occupancy value, we just know why.
+    """
+    return Observation(
+        venue_id=venue_id,
+        venue_name=venue_name,
+        scraped_at=scraped_at,
+        current_count=None,
+        source_status=f"venue_closed: {reason}",
+    )
