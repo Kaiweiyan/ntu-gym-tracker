@@ -275,6 +275,16 @@ publicly via a Cloudflare Tunnel.
   microseconds, some without) — always parse with `pd.to_datetime(...,
   format="ISO8601")`, which tolerates the mix; a fixed format string will
   fail on one or the other.
+- A real `"ok"` scrape can still be wrong: gym's on-site counter reported a
+  flat/low `0` for ~6 days (2026-09-30–10-05) while the venue was actually open
+  with real foot traffic — a hardware/counter fault, not a scraper bug (the
+  fetch+parse succeeded every time) and not a closure (`venue_closed`
+  wouldn't be honest either). Fixed up by hand with `csv_tool.py`
+  (`current_count=NULL, source_status='sensor_error: ...'`) — the same
+  null-count-means-excluded mechanism as every other bad-data status, just
+  under a label that says *why* without claiming it was a fetch/parse
+  failure or a declared closure. Nothing automated catches this; it only
+  surfaces as a visibly-wrong multi-day flat `0` on the dashboard.
 
 ---
 

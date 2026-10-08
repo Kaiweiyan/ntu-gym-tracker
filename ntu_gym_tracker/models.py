@@ -25,5 +25,14 @@ class Observation:
     scraped_at: str  # ISO-8601 UTC timestamp of when WE fetched it
     current_count: int | None
     # "ok" | "open" | "closed" | "fetch_error: ..." | "parse_error: ..." |
-    # "venue_closed: <reason>"
+    # "venue_closed: <reason>" | "sensor_error: <reason>"
+    #
+    # "sensor_error" isn't written by any code path here — it's a manual
+    # csv_tool.py correction label for a scrape that succeeded (so it isn't
+    # a fetch/parse error) but got a known-wrong reading from the site's own
+    # counter while the venue was actually open (so it isn't venue_closed
+    # either); current_count is set to NULL the same way, so it's excluded
+    # from training like every other null-count status. First used 2026-10,
+    # when gym's on-site counter reported 0 for ~5 days despite real foot
+    # traffic.
     source_status: str

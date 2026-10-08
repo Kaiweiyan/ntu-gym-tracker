@@ -7,6 +7,23 @@ live in `spec.md`.
 
 ## [Unreleased]
 
+### Added
+- **`sensor_error: <reason>`**: a new `source_status` value, documented in
+  `models.py`/`csv_tool.py`'s schema help, for a real `"ok"` scrape that got
+  a known-wrong reading from the site's own counter — distinct from
+  `fetch_error`/`parse_error` (the scrape itself succeeded) and from
+  `venue_closed` (the venue was actually open). Like every other
+  null-count status, it's automatically excluded from historical
+  aggregates/forecasts. Not written by any code path — it's a manual
+  `csv_tool.py` correction label for when this is spotted after the fact.
+
+### Fixed
+- Data cleanup: gym's on-site counter reported a flat or unreliably low
+  `0` for 6 days (2026-09-30–10-05) despite the venue being open, relabeled
+  to `sensor_error` (474 rows); two isolated single-day `0` anomalies for pool
+  (09-25, 09-28, unrelated to any closure) deleted outright. Both changes
+  made with `csv_tool.py`, which backed up `occupancy.csv` before writing.
+
 ## [0.5.0] - 2026-08-07 — Manual closures, drop weather
 
 ### Added
