@@ -157,13 +157,37 @@ venue for the rest of the day. The dashboard shows the reason (and the date rang
 multi-day closure) right on that venue's card, as soon as the file is updated — no need to
 wait for the collector's next cycle.
 
-If a day was already scraped normally *before* you declared it a closure, fix up the
-already-recorded rows by hand with `csv_tool.py`, e.g.:
+If a day was already scraped normally *before* you declared it a closure, the daily check
+below cleans it up automatically (within 7 days). To fix one by hand, use `csv_tool.py`, e.g.:
 
 ```bash
 uv run csv_tool.py exec "UPDATE occupancy SET current_count=NULL,
     source_status='venue_closed: 颱風假' WHERE scraped_at LIKE '2026-07-10%' AND venue_id='gym'"
 ```
+
+## Automated closure check (`daily_check.py`)
+
+Runs from cron twice a day — 07:30 (before opening) and 22:30 (after closing):
+
+```bash
+scripts/run_daily_check.sh               # what cron runs; appends to logs/daily_check.log
+uv run daily_check.py --dry-run          # report what it would do, change nothing
+```
+
+1. **Announcements**: reads the official homepage's 新訊與公告 list. Each announcement has a
+   stable id (`/news/?K=163`); ids already handled are in `data/announcements_seen.json`, so
+   on a day with nothing new, no AI call is made at all. New announcements (text *and* images
+   — a monthly notice is usually just a calendar picture) go to a headless Claude Code run
+   that can only read those files and must answer in JSON; the script validates its answer
+   before adding any closure to `data/closures.csv`.
+2. **Reconcile**: rows scraped on a declared closure day (within the last 7 days) — i.e. before
+   the closure was registered — are replaced by one `venue_closed` marker, exactly what the
+   collector would have written had it known in time. `occupancy.csv` is backed up first.
+3. **Commit**: if anything changed, the data files are committed as `[Auto] ...` (never pushed),
+   so every automated edit can be reviewed and reverted.
+
+Setup: the crontab entries are in `scripts/run_daily_check.sh`'s header. It needs the
+`claude` CLI — on `PATH`, or the one bundled with the VS Code extension (found automatically).
 
 ## Project structure
 
@@ -171,10 +195,12 @@ uv run csv_tool.py exec "UPDATE occupancy SET current_count=NULL,
 ntu_gym_tracker/      # package: config, scraper, parser, hours, closures, storage, data_access, forecast_model
 app.py                # FastAPI app (JSON API + dashboard)
 collector.py          # collector: always-on loop, or --once for cron
+daily_check.py        # cron job: read closure announcements, clean closure-day data, commit
 csv_tool.py           # SQL-like CLI for manually inspecting/editing data/occupancy.csv
 templates/ static/    # Jinja2 templates + CSS
-scripts/              # cron wrapper + systemd unit
-data/                 # occupancy.csv (the data store), closures.csv (manual closure calendar)
+scripts/              # cron wrappers + systemd unit
+data/                 # occupancy.csv (the data store), closures.csv (closure calendar),
+                      # announcements_seen.json (announcements daily_check.py has read)
 ```
 
 ## Roadmap

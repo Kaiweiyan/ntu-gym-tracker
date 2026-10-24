@@ -33,6 +33,15 @@ VENUE_CAPACITY: dict[str, dict[str, int]] = {
     "pool": {"optimal_count": 50, "max_capacity": 130},
 }
 
+# Fixed y-axis ceiling for each venue's forecast/profile charts, so toggling
+# today/tomorrow or the day range never rescales the axis. Defaults to the
+# venue's max_capacity; override where real traffic never gets near capacity
+# (pool peaks ~80 of 130) so its curve isn't squashed into the bottom half.
+# The frontend still stretches past this if a day ever exceeds it.
+CHART_Y_MAX: dict[str, int] = {
+    "pool": 80,
+}
+
 # --- Forecast ---
 # Baseline strategy for get_forecast()'s predicted curve. One of the keys in
 # `forecast_model._STRATEGIES`:

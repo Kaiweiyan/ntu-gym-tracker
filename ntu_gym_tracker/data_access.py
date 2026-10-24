@@ -24,7 +24,7 @@ from typing import Any
 import pandas as pd
 
 from . import forecast_model
-from .config import CSV_PATH, VENUE_CAPACITY
+from .config import CHART_Y_MAX, CSV_PATH, VENUE_CAPACITY
 
 TAIPEI = "Asia/Taipei"  # IANA timezone name
 WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -67,13 +67,22 @@ def _occupancy_ok() -> pd.DataFrame:
 
 
 def list_venues() -> list[dict]:
-    """Distinct venues seen in the data, e.g. [{'id': 'gym', 'name': '健身中心'}]."""
+    """Distinct venues seen in the data, e.g.
+    [{'id': 'gym', 'name': '健身中心', 'y_max': 161}]. `y_max` is the fixed
+    y-axis ceiling for that venue's charts (`config.CHART_Y_MAX`, else its
+    max_capacity), so switching today/tomorrow or the profile range never
+    rescales the axis.
+    """
     df = _occupancy_ok()
     if df.empty:
         return []
     pairs = df[["venue_id", "venue_name"]].drop_duplicates()
     return [
-        {"id": vid, "name": vname}
+        {
+            "id": vid,
+            "name": vname,
+            "y_max": CHART_Y_MAX.get(vid, VENUE_CAPACITY.get(vid, {}).get("max_capacity")),
+        }
         for vid, vname in zip(pairs["venue_id"], pairs["venue_name"])
     ]
 

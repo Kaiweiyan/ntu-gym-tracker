@@ -8,6 +8,30 @@ live in `spec.md`.
 ## [Unreleased]
 
 ### Added
+- **Automated closure check** (`daily_check.py`, run by cron at 07:30 and
+  22:30 via `scripts/run_daily_check.sh`): reads new announcements on the
+  official site (tracked by id in `data/announcements_seen.json`, so no AI
+  call when nothing is new), has a headless Claude Code run — which can only
+  read the announcement's text and images — extract whole-day closures as
+  JSON, validates them, and appends them to `data/closures.csv`. It then
+  replaces rows scraped on a declared closure day within the last 7 days
+  (registered too late) with one `venue_closed` marker, backs up
+  `occupancy.csv` first, and commits any data change as `[Auto] ...`.
+
+### Changed
+- The forecast and average-profile charts now share a fixed y-axis per
+  venue instead of auto-scaling (gym 0–161 = its capacity; pool 0–80 via
+  the new `config.CHART_Y_MAX`, since it never gets near its 130 capacity),
+  so toggling today/tomorrow or the profile range no longer rescales the
+  axis — equal curve heights now always mean equal head counts. The axis
+  only stretches past the ceiling if a day's data actually exceeds it.
+  `/api/venues` now includes each venue's `y_max`.
+- Forecast and profile charts are taller (480px, 400px on phones) so the
+  fixed ceiling doesn't flatten the curves.
+- Browser-tab icon is now a blue dumbbell (`static/favicon.svg`) instead
+  of an emoji.
+
+### Added
 - **`sensor_error: <reason>`**: a new `source_status` value, documented in
   `models.py`/`csv_tool.py`'s schema help, for a real `"ok"` scrape that got
   a known-wrong reading from the site's own counter — distinct from

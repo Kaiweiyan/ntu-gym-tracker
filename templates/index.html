@@ -13,7 +13,7 @@
   <h2>場館選擇</h2>
   <div class="venue-select" id="venue-toggle">
     {% for v in venues %}
-    <button data-venue="{{ v.id }}" class="{% if loop.first %}active{% endif %}">{{ v.name }}</button>
+    <button data-venue="{{ v.id }}" data-y-max="{{ v.y_max or '' }}" class="{% if loop.first %}active{% endif %}">{{ v.name }}</button>
     {% endfor %}
   </div>
 </section>
@@ -24,7 +24,7 @@
     <button data-day="today" class="active">今天 <span class="day-date">{{ today_label }}</span></button>
     <button data-day="tomorrow">明天 <span class="day-date">{{ tomorrow_label }}</span></button>
   </div>
-  <div id="forecast" class="chart"></div>
+  <div id="forecast" class="chart chart-tall"></div>
 </section>
 
 <section>
@@ -35,7 +35,7 @@
     <button data-days="7" class="active">七天</button>
     <button data-days="30">一個月</button>
   </div>
-  <div id="profile" class="chart"></div>
+  <div id="profile" class="chart chart-tall"></div>
 </section>
 
 <section>
@@ -49,6 +49,13 @@
   // First venue is selected by default (falls back to "gym" if none yet).
   const firstBtn = document.querySelector("#venue-toggle button");
   let currentVenue = firstBtn ? firstBtn.dataset.venue : "gym";
+  // Fixed y-axis ceiling per venue (config.CHART_Y_MAX, else its max
+  // capacity), shared by the forecast and profile charts, so toggling
+  // today/tomorrow or the day range never rescales the axis and equal heights
+  // always mean equal head counts. Stretches past the ceiling only if a day's
+  // data actually exceeds it, rather than clipping the curve.
+  let currentYMax = firstBtn ? +firstBtn.dataset.yMax || null : null;
+  const yAxisMax = () => currentYMax ? (v) => Math.max(currentYMax, v.max) : undefined;
 
   // Show the current venue name beside every venue-dependent chart heading, so
   // it's clear which venue each chart is displaying (the selector is one place).
@@ -73,7 +80,7 @@
         legend: { data: ["實際", "預測"], top: 0, right: 8 },
         grid: { top: 35, left: 48, right: 20, bottom: 40 },
         xAxis: { type: "category", data: d.slots, axisLabel: { interval: (i, v) => v.endsWith(":00") } },
-        yAxis: { type: "value", name: "人數", nameTextStyle: { align: "left" } },
+        yAxis: { type: "value", name: "人數", nameTextStyle: { align: "left" }, min: 0, max: yAxisMax() },
         series: [
           {
             name: "實際", type: "line", showSymbol: false, smooth: true,
@@ -147,7 +154,7 @@
           // Label only on the hour (:00) so the axis isn't crowded with 10-min slots.
           axisLabel: { interval: (idx, val) => val.endsWith(":00") },
         },
-        yAxis: { type: "value", name: "平均人數", nameTextStyle: { align: "left" } },
+        yAxis: { type: "value", name: "平均人數", nameTextStyle: { align: "left" }, min: 0, max: yAxisMax() },
         series: [{
           type: "line", showSymbol: false, smooth: true,
           data: d.counts,
@@ -184,6 +191,7 @@
 
   wireToggle("#venue-toggle", (btn) => {
     currentVenue = btn.dataset.venue;
+    currentYMax = +btn.dataset.yMax || null;
     setVenueTags(btn.textContent.trim());
     refresh();
   });

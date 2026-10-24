@@ -111,6 +111,54 @@ original roadmap and `CHANGELOG.md` for release-by-release history.
 
 ---
 
+## Automated closure check (`daily_check.py`, `scripts/run_daily_check.sh`)
+
+Cron on the collector's host (ws3) runs it at 07:30 and 22:30 Taipei — before
+opening, and after closing (a same-day/next-day closure is usually posted the
+evening before, e.g. the typhoon notice went up 10/22 for 10/23–24).
+
+- **Only new announcements cost anything.** The homepage's 新訊與公告 list
+  links each announcement as `/news/?K=<id>`, a stable id. Handled ids live
+  in `data/announcements_seen.json` (committed); a run with nothing new
+  makes zero AI calls. An id is marked seen only after Claude's answer was
+  parsed, so a failed call is retried next run. The homepage only lists the
+  latest ~7, which is plenty at two runs a day.
+- **Claude reads, the script writes.** Body text (between the search
+  form's 清除 button and 相關連結) and every `/edimg/` image are fetched by
+  Python; images matter because monthly 營業公告 are a calendar picture with
+  no text at all. They go to a headless `claude -p` with `--restricted
+  --tools Read`, cwd = a temp dir holding only those images — it can read
+  them and nothing else, and its only output is a JSON
+  `{"closures": [...], "notes": [...]}`. `validate()` then checks it before
+  anything touches `closures.csv`: known `venue_id` (or blank), parseable
+  dates, `end >= start`, range ≤ 60 days, not older than the reconcile
+  window, not more than a year out. A closure already fully covered is not
+  re-added. Asymmetric risk is why this matters: a wrongly added closure
+  stops the collector for that venue all day and that data can never be
+  recovered, whereas a missed one only leaves zeros to clean up later.
+- **Partial-day changes are logged, not applied** (`notes`): `closures.csv`
+  only models whole days.
+- **Reconcile** (deterministic, no AI): for each declared closure day in the
+  last `RECONCILE_DAYS` (7), any row for that venue that isn't a
+  `venue_closed` marker was scraped before the closure was registered; all
+  of that venue-day's rows are replaced by one marker at the day's opening
+  tick, placed where the first removed row was (keeps chronological order).
+  Days with no rows at all are left alone — in the 07:30 run today has no
+  rows yet, and the collector writes today's marker itself at the opening
+  tick. Backup first (`occupancy.csv.bak.*`), temp file + `os.replace`, and
+  an mtime check right before replacing (a collector write in between →
+  skip, retry next run). Idempotent.
+- **Commit**: if closures or occupancy changed, `git add` + `git commit --
+  <the three data files>` as `[Auto] ...`. The pathspec commits only those
+  files even if other changes are staged; never pushes.
+- **The CLI** is `claude` on PATH, else the newest
+  `~/.vscode-server/extensions/anthropic.claude-code-*/resources/native-binary/claude`
+  (the extension's versioned path changes on every update, so it's globbed
+  per run, not hard-coded). The wrapper sets PATH and a UTF-8 locale since
+  cron's environment is minimal; log at `logs/daily_check.log` (gitignored).
+
+---
+
 ## Manual CSV editing (`csv_tool.py`)
 
 - SQL-like CLI for hand-fixing `data/occupancy.csv` (backfilling a known
@@ -234,6 +282,20 @@ HTMX-refreshed) → 場館選擇 (one global venue toggle, drives every chart be
 it) → 人數預測 → 各時段平均人數 → 各時段熱門程度 (heatmap). There is no
 trend/history chart — it was removed for not pulling its weight, along with
 `get_history()`, the `/api/history` route, and all related frontend code.
+
+The forecast and profile charts use a **fixed y-axis per venue**, `0` to
+`config.CHART_Y_MAX[venue]` or else the venue's `max_capacity` (gym 161,
+pool 80; carried on each venue button as `data-y-max`, from
+`list_venues()`), instead of ECharts' auto-scaling. With auto-scaling, a
+day peaking at 70 and one peaking at 120 drew identically tall curves when
+toggling today/tomorrow, which misread as equal crowding. Capacity is the
+default because it never changes and doubles as a "how close to full"
+reference; the pool overrides it to 80 because it peaks ~80 of 130 and
+would otherwise only use the bottom half of its chart. The axis `max` is a
+function, `Math.max(ceiling, dataMax)`, so a day that ever exceeds the
+ceiling stretches the axis rather than clipping the curve. Both line
+charts are taller (`.chart-tall`, 480px / 400px on phones) for the same
+reason. The heatmap's color scale is left on its own observed-max range.
 
 The global venue picker (`.venue-select`) is deliberately styled bigger and
 shaped differently (rounded rect + shadow, `font-weight: 600`) than the
