@@ -1,8 +1,9 @@
 # NTU Gym Tracker — Implementation Spec
 
 What's actually built and the non-obvious reasoning behind it, organized by
-current architecture rather than a change-by-change log. See `PLAN.md` for the
-original roadmap and `CHANGELOG.md` for release-by-release history.
+current architecture rather than a change-by-change log. See `plan.md` for the
+original roadmap and the repo root's `CHANGELOG.md` for release-by-release
+history.
 
 - Runtime: **Python 3.12**, managed by **uv**.
 - Status: collector + web dashboard/API done (M1–M2), baseline forecast
@@ -65,7 +66,7 @@ original roadmap and `CHANGELOG.md` for release-by-release history.
   - `current_count=None` (not `0`) means these rows fall out of
     `data_access._occupancy_ok()` automatically — same mechanism as a
     fetch/parse error — so no separate filtering logic was needed anywhere
-    downstream (profile/heatmap/forecast).
+    downstream (profile/forecast).
   - A day that's already been scraped normally *before* being
     retroactively declared a closure is a manual fix with `csv_tool.py`
     (`UPDATE occupancy SET current_count=NULL, source_status='venue_closed: ...' WHERE ... AND venue_id='...'`),
@@ -204,8 +205,9 @@ evening before, e.g. the typhoon notice went up 10/22 for 10/23–24).
 ## Web app (`app.py`, `ntu_gym_tracker/data_access.py`, `ntu_gym_tracker/forecast_model.py`)
 
 FastAPI + Jinja2 + ECharts + HTMX. Routes: `/api/venues`, `/api/current`,
-`/api/profile`, `/api/heatmap`, `/api/forecast`; `/` (dashboard) and
-`/partials/current` (HTMX fragment, refetched every 60s).
+`/api/profile`, `/api/forecast`; `/` (dashboard), `/partials/current` (HTMX
+fragment, refetched every 60s) and `/partials/calendar` (HTMX fragment, the
+closure calendar).
 
 - `_load_csv()` caches the parsed DataFrame keyed on the file's mtime, so the
   expensive part (disk read, full CSV parse, UTC→Taipei conversion,
@@ -215,13 +217,12 @@ FastAPI + Jinja2 + ECharts + HTMX. Routes: `/api/venues`, `/api/current`,
   pre-aggregated hourly buckets only if that stops being true.
 - `_occupancy_ok()` keeps real `"ok"` readings **and** the open/close
   0-markers (both have a non-null count) — used by charts that want a line to
-  return to 0. `get_heatmap()` instead filters strictly to `source_status ==
-  "ok"`, since averaging in the 0-markers would fake an always-empty closing
-  hour and drag down the opening hour's average.
-  **Known gap:** `get_profile()`/`get_forecast()` still include those
-  markers, so each day's very first and last 10-min slot is structurally
-  always 0 in both — same root cause as the heatmap bug, left unfixed by the
-  user's choice (not in scope when found).
+  return to 0.
+  **Known gap:** `get_profile()`/`get_forecast()` therefore also average
+  those markers in, so each day's very first and last 10-min slot is
+  structurally always 0 in both — left unfixed by the user's choice (not in
+  scope when found). (The since-removed heatmap filtered strictly to
+  `source_status == "ok"` for exactly this reason.)
 - **Busyness** (`get_current`): an absolute level vs. the venue's own
   `optimal_count` — `quiet` (<50%), `normal` (50–100%), `busy` (>100%) — not a
   comparison to the historical average for that time slot, so it answers "is
@@ -248,11 +249,6 @@ FastAPI + Jinja2 + ECharts + HTMX. Routes: `/api/venues`, `/api/current`,
   used by the baselines) is also reused by `data_access.get_profile()`'s
   non-forecast average-day chart — the one function shared back across the
   data_access → forecast_model dependency direction.
-- **Heatmap** x-axis cells are labeled by hour range (`"08-09"`) rather than a
-  bare hour number — ECharts always centers one label per category band, so
-  there's no clean way to put independent labels at each cell's two edges
-  without custom canvas rendering; the range label conveys the same
-  information without fighting the library.
 - **Closure display** is split across two independent pieces, because manual
   closures are per-venue but the weekly hours table is shared:
   - `app._venue_closures()` returns `{venue_id: {reason, range, multi_day}}`
@@ -279,9 +275,49 @@ FastAPI + Jinja2 + ECharts + HTMX. Routes: `/api/venues`, `/api/current`,
 
 `index.html` section order, top to bottom: 現在人數 (live cards,
 HTMX-refreshed) → 場館選擇 (one global venue toggle, drives every chart below
-it) → 人數預測 → 各時段平均人數 → 各時段熱門程度 (heatmap). There is no
-trend/history chart — it was removed for not pulling its weight, along with
-`get_history()`, the `/api/history` route, and all related frontend code.
+it) → 人數預測 → 各時段平均人數 → 休館行事曆 (closure calendar). Two charts
+were removed for not pulling their weight, each along with its API route and
+data function: the trend/history chart (`/api/history`, `get_history()`), and
+later the weekday × hour heatmap (`/api/heatmap`, `get_heatmap()`), whose
+spot the closure calendar took.
+
+**Closure calendar** (`partials/calendar.html`, `app.partial_calendar`): an
+HTMX fragment loaded once into `#calendar`, **this month only** (no month
+navigation — it's for "is the gym open on day X this month", not history).
+Server-rendered for the same reason as the cards — the language cookie.
+Sunday-first full weeks (`calendar.Calendar(firstweekday=6)`), the
+neighbouring months' padding days dimmed and never tagged; closures come from
+one `closures.closures_between()` call (the CSV is read once, not per day).
+It shows **both venues** regardless of the global venue toggle, as short tags
+(健身 / 泳池), collapsing to one 全館 tag when every venue closes for the same
+reason. Closed days are red (`--closed`, as holidays are on Taiwanese
+calendars), and the fill says how much is closed: **solid** when every venue
+is closed (even for different reasons), a **light** fill when only one is —
+the blue accent was tried first and read as "selected" rather than "closed".
+A legend explains the two, and a list under the grid repeats the closures
+with consecutive identical days merged ("9/1–9/29 健身 整修"), since phone
+cells (~45px) fit little text. "Today" is an `outline`, not the border, so a
+closed day's border can't hide it.
+
+**Language and theme** are two independent header toggles, both remembered
+by the browser but stored differently on purpose:
+- **Language → `lang` cookie** (1 year, SameSite=Lax), set by JS then a
+  reload. The text is rendered server-side — including the HTMX
+  `/partials/current` fragment, refreshed every 60s — and only a cookie
+  reaches the server on those requests; `localStorage` never would.
+  `app._ui()` reads it (invalid/missing → zh) and passes `t` =
+  `i18n.STRINGS[lang]`; chart labels go to the page JS as
+  `i18n.js_strings(lang)`. Venue names are scraped in Chinese, so English
+  mode maps them by `venue_id`. Closure reasons are free text from
+  `closures.csv` and are shown as written. The JSON API is language-neutral.
+- **Theme → `localStorage`**, purely client-side. An inline script in
+  `<head>` sets `<html data-theme>` before the stylesheet paints (no light
+  flash on a dark page); never chosen → follows `prefers-color-scheme`.
+  CSS swaps the color variables under `:root[data-theme="dark"]` (the blue
+  is `--accent` now, not hard-coded). ECharts bakes its theme in at
+  `init()`, so the toggle fires a `themechange` event and `index.html`
+  disposes and re-creates the charts with the built-in `dark` theme,
+  `backgroundColor: "transparent"` so the card background shows through.
 
 The forecast and profile charts use a **fixed y-axis per venue**, `0` to
 `config.CHART_Y_MAX[venue]` or else the venue's `max_capacity` (gym 161,
@@ -295,7 +331,7 @@ would otherwise only use the bottom half of its chart. The axis `max` is a
 function, `Math.max(ceiling, dataMax)`, so a day that ever exceeds the
 ceiling stretches the axis rather than clipping the curve. Both line
 charts are taller (`.chart-tall`, 480px / 400px on phones) for the same
-reason. The heatmap's color scale is left on its own observed-max range.
+reason.
 
 The global venue picker (`.venue-select`) is deliberately styled bigger and
 shaped differently (rounded rect + shadow, `font-weight: 600`) than the
@@ -353,8 +389,7 @@ publicly via a Cloudflare Tunnel.
 ## Known limitations / next steps
 
 - `get_profile`/`get_forecast` baseline still includes the open/close
-  0-markers (see "Known gap" above) — same fix as the heatmap's, not yet
-  applied.
+  0-markers (see "Known gap" above) — not yet fixed.
 - `same_weekday_mean` can return sparse/empty slots for weekdays with little
   history yet; expected to fill in as more weeks of data accumulate.
 - No automated tests yet (`parser.py` / API, using fixtures).

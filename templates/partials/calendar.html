@@ -1,0 +1,32 @@
+{# This month's closures: a month grid, then the same closures as a list.
+   Loaded into #calendar by HTMX. #}
+<div class="cal-title">{{ month_title }}</div>
+
+<div class="cal-grid">
+  {% for name in weekday_names %}<div class="cal-head">{{ name }}</div>{% endfor %}
+  {% for week in weeks %}{% for c in week %}
+  <div class="cal-day{% if not c.in_month %} cal-out{% endif %}{% if c.today %} cal-is-today{% endif %}{% if c.closed %} cal-closed-{{ c.closed }}{% endif %}">
+    <span class="cal-num">{{ c.day }}</span>
+    {% for tag in c.tags %}
+    <span class="cal-tag" title="{{ tag.label }} · {{ tag.reason }}"><b>{{ tag.label }}</b> {{ tag.reason }}</span>
+    {% endfor %}
+  </div>
+  {% endfor %}{% endfor %}
+</div>
+
+<div class="cal-legend">
+  <span><i class="cal-swatch cal-closed-full"></i>{{ t.legend_full }}</span>
+  <span><i class="cal-swatch cal-closed-part"></i>{{ t.legend_part }}</span>
+</div>
+
+{% if listing %}
+<ul class="cal-list">
+  {% for item in listing %}
+  <li><span class="cal-list-dates">{{ item.dates }}</span>
+    {% for tag in item.tags %}<b>{{ tag.label }}</b> {{ tag.reason }}{% if not loop.last %}{{ t.list_sep }}{% endif %}{% endfor %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="muted cal-empty">{{ t.no_closures }}</p>
+{% endif %}

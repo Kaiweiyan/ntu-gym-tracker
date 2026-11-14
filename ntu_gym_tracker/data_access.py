@@ -1,9 +1,8 @@
 """Read the collector's CSVs and compute the aggregates the web API serves.
 
 The collector writes raw rows to `data/*.csv`; this module turns them into the
-shapes the dashboard needs: latest reading, history time-series, a
-weekday*hour heatmap, and an average-day profile. We use pandas for the
-grouping/resampling. The forecast itself (baselines, gap-fill, a future ML
+shapes the dashboard needs: the latest reading and an average-day profile.
+We use pandas for the grouping/resampling. The forecast itself (baselines, gap-fill, a future ML
 model) lives in `forecast_model.py`; `get_forecast()` here is just the thin
 data-layer wrapper that resolves the venue's readings and hands them off.
 
@@ -27,8 +26,6 @@ from . import forecast_model
 from .config import CHART_Y_MAX, CSV_PATH, VENUE_CAPACITY
 
 TAIPEI = "Asia/Taipei"  # IANA timezone name
-WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-WEEKDAY_ZH = ["一", "二", "三", "四", "五", "六", "日"]  # Mon=0 .. Sun=6
 
 # mtime-keyed cache: {path: (mtime, DataFrame)}
 _cache: dict[str, tuple[float, pd.DataFrame]] = {}
@@ -129,43 +126,6 @@ def get_current() -> list[dict]:
     return out
 
 
-def get_heatmap(venue_id: str) -> dict:
-    """Mean occupancy per (weekday, hour) cell for one venue, for an ECharts heatmap.
-
-    Only "ok" (real scrape) rows count — the opening/closing boundary
-    count=0 markers (`source_status` "open"/"closed") are excluded, unlike
-    other charts that deliberately keep them to make a *line* return to 0.
-    A heatmap has no such need, and keeping them would permanently drag the
-    opening hour's average down and add a fake, always-empty closing-hour
-    column (real scrapes never land exactly on the closing tick).
-    """
-    empty = {"data": [], "hours": [], "weekdays": WEEKDAY_LABELS, "max": 0}
-    df = _occupancy_ok()
-    if df.empty:
-        return empty
-    df = df.loc[(df["venue_id"] == venue_id) & (df["source_status"] == "ok")]
-    if df.empty:
-        return empty
-    grouped = df.groupby(["weekday", "hour"])["current_count"].mean().reset_index()
-    # ECharts wants [x_index, y_index, value] — an *index* into `hours`, not the
-    # raw hour number (opening hour is 8, not 0, so the two only coincide by
-    # accident and every cell used to land 8 slots to the right of its label).
-    hours = sorted({int(h) for h in grouped["hour"]})
-    hour_index = {h: i for i, h in enumerate(hours)}
-    data = [
-        [hour_index[int(h)], int(wd), round(float(c), 1)]
-        for wd, h, c in zip(
-            grouped["weekday"], grouped["hour"], grouped["current_count"]
-        )
-    ]
-    return {
-        "data": data,
-        "hours": [f"{h:02d}" for h in hours],
-        "weekdays": WEEKDAY_LABELS,
-        "max": _to_float(df["current_count"].max()),
-    }
-
-
 def get_profile(venue_id: str, days: int = 7) -> dict:
     """Average 'typical day': mean occupancy per 10-min time-of-day slot.
 
@@ -210,10 +170,6 @@ def _for_venue_since(df: pd.DataFrame, venue_id: str, days: int) -> pd.DataFrame
         return df
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     return df.loc[(df["venue_id"] == venue_id) & (df["scraped_at"] >= cutoff)]
-
-
-def _to_float(v) -> float:
-    return round(float(v), 1)
 
 
 def _mean(series) -> float | None:

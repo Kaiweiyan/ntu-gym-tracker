@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from .config import CLOSURES_PATH, VENUE_ID_BY_NAME
 
@@ -65,7 +65,24 @@ def closures_on(d: date) -> dict[str, Closure]:
     ("every venue") row; the two venues' calendars are otherwise
     independent, so declaring gym closed has no effect on pool.
     """
+    return _match(_load_rows(), d)
+
+
+def closures_between(start: date, end: date) -> dict[date, dict[str, Closure]]:
+    """`closures_on` for every day from `start` to `end` inclusive, reading
+    the CSV once — only days with at least one closure are present."""
     rows = _load_rows()
+    out: dict[date, dict[str, Closure]] = {}
+    d = start
+    while d <= end:
+        found = _match(rows, d)
+        if found:
+            out[d] = found
+        d += timedelta(days=1)
+    return out
+
+
+def _match(rows: list[tuple[str, Closure]], d: date) -> dict[str, Closure]:
     out: dict[str, Closure] = {}
     for vid in VENUE_ID_BY_NAME.values():
         for row_venue, closure in rows:

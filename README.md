@@ -5,8 +5,8 @@ University's gym (健身中心) and indoor pool (室內游泳池).
 
 A lightweight collector scrapes the official occupancy page every 10 minutes and
 appends to a CSV; a FastAPI app serves both a JSON API and a server-rendered
-dashboard with live counts, an occupancy forecast, a weekday × hour heatmap, and
-an average-day profile.
+dashboard with live counts, an occupancy forecast, an average-day profile, and a
+monthly closure calendar. The dashboard has Chinese/English and light/dark modes.
 
 ## How it works
 
@@ -39,7 +39,10 @@ The occupancy numbers are server-rendered in the page's HTML, so a plain HTTP GE
 - **Occupancy forecast**: today/tomorrow, actual readings meeting a baseline
   forecast line (configurable strategy, see `config.FORECAST_METHOD`).
 - **Average-day profile**: mean occupancy per 10-minute slot over the last N days.
-- **Weekday × hour heatmap** of average occupancy.
+- **Closure calendar**: a month grid of declared closures per venue, browsable
+  month by month.
+- **中文 / English and light / dark modes**, switchable from the header and
+  remembered by the browser.
 - **Opening-hours aware** collection: a single `count=0` marker is recorded at the
   open and close ticks (kept distinct via `source_status` so it can be excluded
   from training); failed fetches are recorded as rows, never as a misleading `0`.
@@ -77,7 +80,7 @@ uv run collector.py --once   # a single cycle (e.g. from cron, every 10 min)
 ```
 
 For a 24/7 deployment use cron, a `systemd --user` service
-(`scripts/ntu-gym-collector.service`), or tmux — see `spec.md`.
+(`scripts/ntu-gym-collector.service`), or tmux — see `docs/spec.md`.
 
 ### Run the web app
 
@@ -94,7 +97,6 @@ uv run uvicorn app:app --host 0.0.0.0 --port 8000     # serve
 | `GET /api/current` | Latest count per venue.                           |
 | `GET /api/forecast` | Actual + forecast curve; params `venue`, `day`.  |
 | `GET /api/profile` | Mean per 10-min slot; params `venue`, `days`.     |
-| `GET /api/heatmap` | Weekday × hour average matrix; param `venue`.     |
 
 ## Manual CSV editing (`csv_tool.py`)
 
@@ -192,7 +194,7 @@ Setup: the crontab entries are in `scripts/run_daily_check.sh`'s header. It need
 ## Project structure
 
 ```
-ntu_gym_tracker/      # package: config, scraper, parser, hours, closures, storage, data_access, forecast_model
+ntu_gym_tracker/      # package: config, scraper, parser, hours, closures, storage, data_access, forecast_model, i18n
 app.py                # FastAPI app (JSON API + dashboard)
 collector.py          # collector: always-on loop, or --once for cron
 daily_check.py        # cron job: read closure announcements, clean closure-day data, commit
@@ -201,9 +203,11 @@ templates/ static/    # Jinja2 templates + CSS
 scripts/              # cron wrappers + systemd unit
 data/                 # occupancy.csv (the data store), closures.csv (closure calendar),
                       # announcements_seen.json (announcements daily_check.py has read)
+docs/                 # spec.md (implementation notes), settings.md (settings overview, 中文),
+                      # plan.md (the original roadmap)
 ```
 
 ## Roadmap
 
 Occupancy forecasting (calendar + lag features). See `CHANGELOG.md` for
-released versions and `spec.md` for implementation details.
+released versions and `docs/spec.md` for implementation details.

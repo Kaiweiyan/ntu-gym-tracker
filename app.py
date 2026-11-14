@@ -14,7 +14,8 @@ Two kinds of routes:
 
 from __future__ import annotations
 
-from datetime import timedelta
+import calendar
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -23,15 +24,19 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from ntu_gym_tracker import data_access as data
-from ntu_gym_tracker.closures import closures_on
+from ntu_gym_tracker import i18n
+from ntu_gym_tracker.closures import closures_between, closures_on
+from ntu_gym_tracker.config import VENUE_ID_BY_NAME
 from ntu_gym_tracker.hours import is_open, now_taipei, open_close
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
-def _day_label(dt) -> str:
-    """e.g. '7/1 (三)' — for the forecast day toggle."""
-    return f"{dt.month}/{dt.day} ({data.WEEKDAY_ZH[dt.weekday()]})"
+def _ui(request: Request) -> dict:
+    """Template context every page needs: the language (from the `lang`
+    cookie, see `i18n`) and its strings. The theme is client-side only."""
+    lang = i18n.get_lang(request.cookies)
+    return {"lang": lang, "t": i18n.STRINGS[lang]}
 
 
 def _venue_closures() -> dict[str, dict]:
@@ -99,11 +104,6 @@ def api_current() -> dict:
     }
 
 
-@app.get("/api/heatmap")
-def api_heatmap(venue: str) -> dict:
-    return data.get_heatmap(venue)
-
-
 @app.get("/api/profile")
 def api_profile(venue: str, days: int = 7) -> dict:
     return data.get_profile(venue, days=days)
@@ -118,14 +118,22 @@ def api_forecast(venue: str, day: str = "today") -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    ui = _ui(request)
+    lang = ui["lang"]
     now = now_taipei()
+    venues = [
+        {**v, "name": i18n.venue_name(v["id"], v["name"], lang)}
+        for v in data.list_venues()
+    ]
     return templates.TemplateResponse(
         request,
         "index.html",
         {
-            "venues": data.list_venues(),
-            "today_label": _day_label(now),
-            "tomorrow_label": _day_label(now + timedelta(days=1)),
+            **ui,
+            "t_js": i18n.js_strings(lang),
+            "venues": venues,
+            "today_label": i18n.day_label(now, lang),
+            "tomorrow_label": i18n.day_label(now + timedelta(days=1), lang),
             "static_version": _static_version(),
         },
     )
@@ -134,12 +142,88 @@ def index(request: Request):
 @app.get("/partials/current", response_class=HTMLResponse)
 def partial_current(request: Request):
     """HTML fragment HTMX swaps in every minute (the live occupancy cards)."""
+    ui = _ui(request)
+    venues = [
+        {**v, "venue_name": i18n.venue_name(v["venue_id"], v["venue_name"], ui["lang"])}
+        for v in data.get_current()
+    ]
     return templates.TemplateResponse(
         request,
         "partials/current.html",
         {
-            "venues": data.get_current(),
+            **ui,
+            "venues": venues,
             "venue_closures": _venue_closures(),
             "scheduled_closure": _scheduled_closure(),
+        },
+    )
+
+
+@app.get("/partials/calendar", response_class=HTMLResponse)
+def partial_calendar(request: Request):
+    """This month's declared closures (see `closures.py`) as a month grid,
+    plus a list of them under it. Loaded once by HTMX with the page."""
+    ui = _ui(request)
+    lang = ui["lang"]
+    today = now_taipei().date()
+    first = today.replace(day=1)
+    # Sunday-first full weeks, including the neighbouring months' days that
+    # pad out the first and last rows (shown dimmed, never tagged).
+    weeks = calendar.Calendar(firstweekday=6).monthdatescalendar(first.year, first.month)
+    found = closures_between(first, weeks[-1][-1])
+    all_venues = set(VENUE_ID_BY_NAME.values())
+
+    def tags(d: date) -> list[dict]:
+        day = found.get(d, {}) if d.month == first.month else {}
+        reasons = {c.reason for c in day.values()}
+        # Every venue closed for the same reason reads as one "全館" tag.
+        if day and set(day) == all_venues and len(reasons) == 1:
+            return [{"label": i18n.venue_short("all", lang), "reason": reasons.pop()}]
+        return [
+            {"label": i18n.venue_short(vid, lang), "reason": c.reason}
+            for vid, c in sorted(day.items())
+        ]
+
+    def cell(d: date) -> dict:
+        day = found.get(d, {}) if d.month == first.month else {}
+        return {
+            "day": d.day,
+            "in_month": d.month == first.month,
+            "today": d == today,
+            "tags": tags(d),
+            # Solid fill only when *every* venue is closed; one venue closed
+            # gets a lighter fill so the two aren't confused at a glance.
+            "closed": "full" if set(day) == all_venues else ("part" if day else None),
+        }
+
+    cells = [[cell(d) for d in week] for week in weeks]
+
+    # The same closures as a list, consecutive days with identical tags merged
+    # into one range ("9/1–9/29 健身 整修") — readable on a phone, where the
+    # day cells are too narrow for much text.
+    listing: list[dict] = []
+    d = first
+    while d.month == first.month:
+        day_tags = tags(d)
+        prev = listing[-1] if listing else None
+        if day_tags and prev and prev["tags"] == day_tags and prev["end"] == d - timedelta(days=1):
+            prev["end"] = d
+        elif day_tags:
+            listing.append({"start": d, "end": d, "tags": day_tags})
+        d += timedelta(days=1)
+    for item in listing:
+        start, end = item.pop("start"), item.pop("end")
+        item["dates"] = (f"{start.month}/{start.day}" if start == end
+                         else f"{start.month}/{start.day}–{end.month}/{end.day}")
+
+    return templates.TemplateResponse(
+        request,
+        "partials/calendar.html",
+        {
+            **ui,
+            "weeks": cells,
+            "weekday_names": i18n.calendar_weekdays(lang),
+            "month_title": i18n.month_title(first, lang),
+            "listing": listing,
         },
     )

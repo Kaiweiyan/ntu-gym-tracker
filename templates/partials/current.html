@@ -1,7 +1,7 @@
 {# Live occupancy cards. Rendered standalone and swapped in by HTMX every 60s. #}
 {% if scheduled_closure %}
 <p class="closure-notice closure-scheduled">
-  🌙 目前非開放時間（今日開放時間 {{ scheduled_closure.open }}–{{ scheduled_closure.close }}）。
+  {{ t.after_hours.format(open=scheduled_closure.open, close=scheduled_closure.close) }}
 </p>
 {% endif %}
 
@@ -11,29 +11,26 @@
   <div class="card {{ 'card-closed-manual' if vc else ('card-closed' if scheduled_closure else 'busyness-' ~ v.busyness) }}">
     <div class="card-name">{{ v.venue_name }}</div>
     {% if vc %}
-    <div class="card-count card-closed-label">休館中</div>
+    <div class="card-count card-closed-label">{{ t.closed }}</div>
     <div class="card-closed-detail muted">
-      {{ vc.reason }}{% if vc.multi_day %}（{{ vc.range }}）{% endif %}
+      {{ vc.reason }}{% if vc.multi_day %}{{ t.closed_range.format(range=vc.range) }}{% endif %}
     </div>
     {% elif scheduled_closure %}
-    <div class="card-count card-closed-label">休館中</div>
-    <div class="card-time muted">更新於 {{ v.local_time }}</div>
+    <div class="card-count card-closed-label">{{ t.closed }}</div>
+    <div class="card-time muted">{{ t.updated.format(t=v.local_time) }}</div>
     {% else %}
-    <div class="card-count">{{ v.current_count }}<span class="unit"> 人</span></div>
+    <div class="card-count">{{ v.current_count }}<span class="unit">{{ t.unit }}</span></div>
     {% if v.occupancy_pct is not none %}
-      <div class="card-pct">{{ v.occupancy_pct }}% 滿載 (上限 {{ v.max_capacity }})</div>
+      <div class="card-pct">{{ t.pct_full.format(pct=v.occupancy_pct, max=v.max_capacity) }}</div>
     {% endif %}
     <div class="card-busy">
-      {% if v.busyness == "quiet" %}🟢 空
-      {% elif v.busyness == "normal" %}🟡 普通
-      {% elif v.busyness == "busy" %}🔴 擁擠
-      {% else %}— {% endif %}
-      {% if v.typical_count is not none %}<span class="muted">(此時段平均 {{ v.typical_count }})</span>{% endif %}
+      {% if v.busyness in ("quiet", "normal", "busy") %}{{ t[v.busyness] }}{% else %}—{% endif %}
+      {% if v.typical_count is not none %}<span class="muted">{{ t.typical.format(n=v.typical_count) }}</span>{% endif %}
     </div>
-    <div class="card-time muted">更新於 {{ v.local_time }}</div>
+    <div class="card-time muted">{{ t.updated.format(t=v.local_time) }}</div>
     {% endif %}
   </div>
   {% else %}
-  <p class="muted">目前沒有資料（可能尚未開始收集，或現在休館）。</p>
+  <p class="muted">{{ t.no_data }}</p>
   {% endfor %}
 </div>

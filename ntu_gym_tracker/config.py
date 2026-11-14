@@ -26,7 +26,7 @@ VENUE_ID_BY_NAME: dict[str, str] = {
 }
 
 # optimal_count / max_capacity are fixed per venue (confirmed unchanging across
-# all scrapes so far — see spec.md M0), so they live here instead of being
+# all scrapes so far — see docs/spec.md M0), so they live here instead of being
 # scraped and stored on every row. Keyed by venue_id.
 VENUE_CAPACITY: dict[str, dict[str, int]] = {
     "gym": {"optimal_count": 80, "max_capacity": 161},

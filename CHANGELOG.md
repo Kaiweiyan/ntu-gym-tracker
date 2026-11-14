@@ -3,11 +3,25 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/), and the project
 uses [Semantic Versioning](https://semver.org/). Detailed implementation notes
-live in `spec.md`.
+live in `docs/spec.md`.
 
 ## [Unreleased]
 
 ### Added
+- **Closure calendar** at the bottom of the dashboard (where the heatmap
+  was): this month's declared closures from `closures.csv` as a month grid,
+  per venue (健身 / 泳池, or 全館 when both close for the same reason).
+  Closed days are red — solid when every venue is closed, a light fill
+  when only one is — with a legend and, below the grid, the same closures
+  as a list (consecutive days merged into ranges). Server-rendered HTMX
+  fragment (`/partials/calendar`), so it follows the language setting.
+- **English mode and dark mode**, switchable independently from the header
+  (中文/EN, ☀️/🌙) and remembered by the browser. Language is a `lang`
+  cookie (the server renders the text, including the HTMX cards fragment);
+  strings live in `ntu_gym_tracker/i18n.py`. Theme is `localStorage`, applied
+  before first paint so a dark page never flashes light, and defaults to
+  the system preference until chosen; charts redraw in ECharts' dark theme
+  on switch. Closure reasons from `closures.csv` stay as written.
 - **Automated closure check** (`daily_check.py`, run by cron at 07:30 and
   22:30 via `scripts/run_daily_check.sh`): reads new announcements on the
   official site (tracked by id in `data/announcements_seen.json`, so no AI
@@ -17,6 +31,11 @@ live in `spec.md`.
   replaces rows scraped on a declared closure day within the last 7 days
   (registered too late) with one `venue_closed` marker, backs up
   `occupancy.csv` first, and commits any data change as `[Auto] ...`.
+
+### Removed
+- **Weekday × hour heatmap**, along with `GET /api/heatmap` and
+  `data_access.get_heatmap()` (breaking for API consumers). Its spot on the
+  dashboard is now the closure calendar.
 
 ### Changed
 - The forecast and average-profile charts now share a fixed y-axis per
