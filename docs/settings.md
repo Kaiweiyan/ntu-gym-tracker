@@ -8,11 +8,11 @@
 
 ---
 
-## 1. 爬蟲 / 資料收集（`collector.py`、`ntu_gym_tracker/{scraper,config}.py`）
+## 1. 爬蟲 / 資料收集（`ntu_gym_tracker/{collector,scraper,config}.py`）
 
 | 設定 | 目前值 | 說明 |
 | --- | --- | --- |
-| 抓取頻率 | 每 10 分鐘 | `collector.py` 的 `INTERVAL_MIN`，跟整點對齊（:00/:10/:20…） |
+| 抓取頻率 | 每 10 分鐘 | `ntu_gym_tracker/collector.py` 的 `INTERVAL_MIN`，跟整點對齊（:00/:10/:20…） |
 | 連線逾時 | 15 秒 | `config.REQUEST_TIMEOUT_SECONDS` |
 | 失敗重試次數 | 3 次 | `config.FETCH_RETRIES`，fetch 跟 parse 失敗共用同一組重試額度 |
 | 重試間隔 | 指數退避：1s → 2s | `config.FETCH_RETRY_BACKOFF_SECONDS`（base × 2^attempt） |
@@ -75,9 +75,9 @@
 
 休館期間 collector 完全不會去爬那個場館，會記一筆 `source_status="venue_closed: <原因>"` 的標記（人數欄位留空，不計入歷史平均/預測）。網頁上會在該場館卡片直接顯示原因（多天的話還會顯示日期區間），頁面最下方的「休館行事曆」會標出本月每一天哪個場館休館、原因是什麼：兩館都休館是實心紅底，只有一館休館是淡紅底（兩館同一原因休館會合併成「全館」），格子下方另有本月休館清單。
 
-**要改**：直接編輯 `data/closures.csv`（文字檔，Excel/文字編輯器都可以開），或交給第 4.1 節的自動檢查。如果某天已經被正常爬到資料、事後才登記休館，7 天內的會被自動檢查清掉；更早的要用 `csv_tool.py` 手動回填（`README.md` 有範例指令）。
+**要改**：直接編輯 `data/closures.csv`（文字檔，Excel/文字編輯器都可以開），或交給第 4.1 節的自動檢查。如果某天已經被正常爬到資料、事後才登記休館，7 天內的會被自動檢查清掉；更早的要用 `uv run csv-tool` 手動回填（`README.md` 有範例指令）。
 
-### 4.1 自動檢查休館公告（`daily_check.py`）
+### 4.1 自動檢查休館公告（`uv run daily-check`，`ntu_gym_tracker/daily_check.py`）
 
 | 設定 | 目前值 | 說明 |
 | --- | --- | --- |
@@ -93,7 +93,7 @@
 2. 最近 7 天內，如果有休館日卻還留著正常爬到的資料（因為登記得太晚），換成一筆休館標記（跟我們前幾天手動做的一樣），改之前自動備份。
 3. 有改到資料就自動 commit 一筆 `[Auto] ...`，不會 push。想復原的話用 git 撤回那筆 commit 就好。
 
-**要停用**：`crontab -e` 把那兩行刪掉或前面加 `#`。**要先看它會做什麼**：`uv run daily_check.py --dry-run`。
+**要停用**：`crontab -e` 把那兩行刪掉或前面加 `#`。**要先看它會做什麼**：`uv run daily-check --dry-run`。
 
 ---
 
@@ -119,7 +119,7 @@
 | --- | --- | --- |
 | `data/occupancy.csv` | 逐筆人數資料（長格式，一列=一個場館一個時間點） | 會，當作離機備份 |
 | `data/closures.csv` | 手動休館名單 | 會 |
-| `data/occupancy.csv.bak.<時間戳>` | `csv_tool.py` 修改資料前的自動備份 | 不會（`.gitignore` 排除），單純本機救援用 |
+| `data/occupancy.csv.bak.<時間戳>` | `csv-tool` 修改資料前的自動備份 | 不會（`.gitignore` 排除），單純本機救援用 |
 
 `occupancy.csv` 裡目前用到的 `source_status` 分類：
 
@@ -149,8 +149,7 @@
 
 ---
 
-## 8. 其他目前還沒做的（如果要討論要不要加）
+## 8. 還沒做的
 
-- 國定假日/學期行事曆自動對照（目前靠手動登記 `closures.csv`）。
-- 氣象資料（之前做過、v0.5.0 時整個移除了）。
-- 以機器學習模型取代現有的歷史平均預測（`forecast_model.py` 的架構已經預留好擴充點，見第 5 節）。
+還在討論的提案（機器學習預測、學校行事曆對照、自動 push 等）在 `docs/plan.md`；
+決定不做的項目和原因在 `docs/spec.md` 的「先不做的」。

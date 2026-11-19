@@ -1,5 +1,7 @@
 # NTU Gym Tracker
 
+English | [繁體中文](README.zh-TW.md)
+
 Collect, visualize, and (soon) forecast live occupancy of National Taiwan
 University's gym (健身中心) and indoor pool (室內游泳池).
 
@@ -39,8 +41,7 @@ The occupancy numbers are server-rendered in the page's HTML, so a plain HTTP GE
 - **Occupancy forecast**: today/tomorrow, actual readings meeting a baseline
   forecast line (configurable strategy, see `config.FORECAST_METHOD`).
 - **Average-day profile**: mean occupancy per 10-minute slot over the last N days.
-- **Closure calendar**: a month grid of declared closures per venue, browsable
-  month by month.
+- **Closure calendar**: this month's declared closures per venue, as a month grid.
 - **中文 / English and light / dark modes**, switchable from the header and
   remembered by the browser.
 - **Opening-hours aware** collection: a single `count=0` marker is recorded at the
@@ -75,8 +76,8 @@ uv sync                      # create the venv and install dependencies
 ### Run the collector
 
 ```bash
-uv run collector.py          # always-on loop, slot-aligned to :00/:10/:20…
-uv run collector.py --once   # a single cycle (e.g. from cron, every 10 min)
+uv run collector            # always-on loop, slot-aligned to :00/:10/:20…
+uv run collector --once     # a single cycle (e.g. from cron, every 10 min)
 ```
 
 For a 24/7 deployment use cron, a `systemd --user` service
@@ -85,49 +86,49 @@ For a 24/7 deployment use cron, a `systemd --user` service
 ### Run the web app
 
 ```bash
-uv run uvicorn app:app --reload                       # dev (http://localhost:8000)
-uv run uvicorn app:app --host 0.0.0.0 --port 8000     # serve
+uv run uvicorn ntu_gym_tracker.app:app --reload                     # dev (http://localhost:8000)
+uv run uvicorn ntu_gym_tracker.app:app --host 0.0.0.0 --port 8000   # serve
 ```
 
 ## API
 
 | Endpoint        | Description                                          |
 | --------------- | ---------------------------------------------------- |
-| `GET /api/venues`  | Known venues (`id`, `name`).                      |
+| `GET /api/venues`  | Known venues (`id`, `name`, chart ceiling `y_max`). |
 | `GET /api/current` | Latest count per venue.                           |
 | `GET /api/forecast` | Actual + forecast curve; params `venue`, `day`.  |
 | `GET /api/profile` | Mean per 10-min slot; params `venue`, `days`.     |
 
-## Manual CSV editing (`csv_tool.py`)
+## Manual CSV editing (`csv-tool`)
 
 For quick manual fixes to `data/occupancy.csv` — correcting a bad reading, backfilling a
-value you know from memory, purging a bad scrape run — `csv_tool.py` loads the CSV into an
+value you know from memory, purging a bad scrape run — `csv-tool` loads the CSV into an
 in-memory SQLite table so you can query/edit it with real SQL, instead of hand-editing the
 file. Nothing touches disk until you review a preview and confirm; the previous file is
 always backed up first (`data/occupancy.csv.bak.<timestamp>`).
 
 ```bash
-uv run csv_tool.py schema                             # column names/types
-uv run csv_tool.py query "<a SELECT statement>"        # read-only, prints a table
-uv run csv_tool.py exec "<one UPDATE/DELETE/INSERT>"   # previewed, then confirmed, before writing
+uv run csv-tool schema                             # column names/types
+uv run csv-tool query "<a SELECT statement>"        # read-only, prints a table
+uv run csv-tool exec "<one UPDATE/DELETE/INSERT>"   # previewed, then confirmed, before writing
 ```
 
 Examples:
 
 ```bash
 # List every fetch/parse failure so far
-uv run csv_tool.py query "SELECT * FROM occupancy WHERE source_status LIKE '%error%'"
+uv run csv-tool query "SELECT * FROM occupancy WHERE source_status LIKE '%error%'"
 
 # Fix a row you know the real count for
-uv run csv_tool.py exec "UPDATE occupancy SET current_count=45, source_status='ok'
+uv run csv-tool exec "UPDATE occupancy SET current_count=45, source_status='ok'
     WHERE scraped_at='2026-07-01T12:10:00+00:00' AND venue_id='_parse'"
 
 # Delete every row for one day (e.g. purging a bad scrape run)
-uv run csv_tool.py exec "DELETE FROM occupancy WHERE scraped_at LIKE '2026-07-10%'"
+uv run csv-tool exec "DELETE FROM occupancy WHERE scraped_at LIKE '2026-07-10%'"
 ```
 
 `scraped_at` is stored in UTC, not Taipei local time — but since the venues never open
-before 08:00 Taipei (= 00:00 UTC, see `hours.py`), a plain `LIKE '<date>%'` prefix still
+before 08:00 Taipei (= 00:00 UTC, see `ntu_gym_tracker/hours.py`), a plain `LIKE '<date>%'` prefix still
 lines up exactly with the intended Taipei calendar day.
 
 `exec` only accepts one statement at a time (no `;`-separated batches), refuses to write if
@@ -160,20 +161,20 @@ multi-day closure) right on that venue's card, as soon as the file is updated �
 wait for the collector's next cycle.
 
 If a day was already scraped normally *before* you declared it a closure, the daily check
-below cleans it up automatically (within 7 days). To fix one by hand, use `csv_tool.py`, e.g.:
+below cleans it up automatically (within 7 days). To fix one by hand, use `csv-tool`, e.g.:
 
 ```bash
-uv run csv_tool.py exec "UPDATE occupancy SET current_count=NULL,
+uv run csv-tool exec "UPDATE occupancy SET current_count=NULL,
     source_status='venue_closed: 颱風假' WHERE scraped_at LIKE '2026-07-10%' AND venue_id='gym'"
 ```
 
-## Automated closure check (`daily_check.py`)
+## Automated closure check (`daily-check`)
 
 Runs from cron twice a day — 07:30 (before opening) and 22:30 (after closing):
 
 ```bash
 scripts/run_daily_check.sh               # what cron runs; appends to logs/daily_check.log
-uv run daily_check.py --dry-run          # report what it would do, change nothing
+uv run daily-check --dry-run             # report what it would do, change nothing
 ```
 
 1. **Announcements**: reads the official homepage's 新訊與公告 list. Each announcement has a
@@ -194,20 +195,26 @@ Setup: the crontab entries are in `scripts/run_daily_check.sh`'s header. It need
 ## Project structure
 
 ```
-ntu_gym_tracker/      # package: config, scraper, parser, hours, closures, storage, data_access, forecast_model, i18n
-app.py                # FastAPI app (JSON API + dashboard)
-collector.py          # collector: always-on loop, or --once for cron
-daily_check.py        # cron job: read closure announcements, clean closure-day data, commit
-csv_tool.py           # SQL-like CLI for manually inspecting/editing data/occupancy.csv
-templates/ static/    # Jinja2 templates + CSS
+ntu_gym_tracker/      # all Python code:
+                      #   app (FastAPI: JSON API + dashboard), collector, daily_check, csv_tool,
+                      #   config, scraper, parser, hours, closures, storage, models,
+                      #   data_access, forecast_model, i18n
+templates/ static/    # Jinja2 templates, CSS, favicon
 scripts/              # cron wrappers + systemd unit
 data/                 # occupancy.csv (the data store), closures.csv (closure calendar),
-                      # announcements_seen.json (announcements daily_check.py has read)
-docs/                 # spec.md (implementation notes), settings.md (settings overview, 中文),
-                      # plan.md (the original roadmap)
+                      # announcements_seen.json (announcements daily-check has read)
+docs/                 # 中文: spec.md (current design + project rules), plan.md (open proposals),
+                      # CHANGELOG.md (release history), settings.md (settings overview),
+                      # git-style.md (commit format)
+CLAUDE.md             # working rules for Claude Code (points to docs/spec.md)
 ```
+
+The three command-line tools are registered in `pyproject.toml` (`[project.scripts]`), so
+`uv sync` installs them into the venv and they run as `uv run collector`, `uv run daily-check`
+and `uv run csv-tool`.
 
 ## Roadmap
 
-Occupancy forecasting (calendar + lag features). See `CHANGELOG.md` for
-released versions and `docs/spec.md` for implementation details.
+Open proposals (e.g. a learned forecast with academic-calendar and lag features)
+are in `docs/plan.md`. See `docs/CHANGELOG.md` (中文) for released versions and
+`docs/spec.md` for the current design.
