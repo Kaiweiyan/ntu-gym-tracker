@@ -6,11 +6,11 @@ gets diffed and previewed *before* anything touches disk — nothing is
 written until you type `y` at the confirmation prompt. `occupancy.csv` is
 only ever written after copying it to a timestamped `.bak` file first.
 
-    uv run csv_tool.py schema
-    uv run csv_tool.py query "SELECT * FROM occupancy WHERE source_status='parse_error'"
-    uv run csv_tool.py exec "DELETE FROM occupancy WHERE scraped_at LIKE '2026-07-10%'"
+    uv run csv-tool schema
+    uv run csv-tool query "SELECT * FROM occupancy WHERE source_status='parse_error'"
+    uv run csv-tool exec "DELETE FROM occupancy WHERE scraped_at LIKE '2026-07-10%'"
 
-See README.md's "Manual CSV editing (csv_tool.py)" section for more examples.
+See README.md's "Manual CSV editing (csv-tool)" section for more examples.
 """
 
 from __future__ import annotations
@@ -220,18 +220,18 @@ class _Parser(argparse.ArgumentParser):
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = _Parser(
-        prog="csv_tool.py",
+        prog="csv-tool",
         description=(__doc__ or "").split("\n\n")[0],
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""\
             examples:
-              uv run csv_tool.py schema
-              uv run csv_tool.py query "SELECT * FROM occupancy WHERE source_status='parse_error'"
-              uv run csv_tool.py exec "UPDATE occupancy SET current_count=45, source_status='ok'
+              uv run csv-tool schema
+              uv run csv-tool query "SELECT * FROM occupancy WHERE source_status='parse_error'"
+              uv run csv-tool exec "UPDATE occupancy SET current_count=45, source_status='ok'
                   WHERE scraped_at='2026-07-01T12:10:00+00:00' AND venue_id='_parse'"
-              uv run csv_tool.py exec "DELETE FROM occupancy WHERE scraped_at LIKE '2026-07-10%'"
+              uv run csv-tool exec "DELETE FROM occupancy WHERE scraped_at LIKE '2026-07-10%'"
 
-            See README.md's "Manual CSV editing (csv_tool.py)" section for more.
+            See README.md's "Manual CSV editing (csv-tool)" section for more.
         """),
     )
     sub = parser.add_subparsers(dest="command", required=True)

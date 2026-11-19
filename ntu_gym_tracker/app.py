@@ -1,11 +1,11 @@
 """FastAPI web app: JSON API + server-rendered dashboard.
 
-Run it (from the repo root) with:
+Run it with:
 
-    uv run uvicorn app:app --reload            # dev, auto-reloads on edits
-    uv run uvicorn app:app --host 0.0.0.0 --port 8000   # serve (then Cloudflare Tunnel)
+    uv run uvicorn ntu_gym_tracker.app:app --reload   # dev, auto-reloads on edits
+    uv run uvicorn ntu_gym_tracker.app:app --host 0.0.0.0 --port 8000   # serve (then Cloudflare Tunnel)
 
-`app` is the ASGI application object uvicorn looks for (`app:app` = file:variable).
+`app` is the ASGI application object uvicorn looks for (`ntu_gym_tracker.app:app` = module:variable).
 
 Two kinds of routes:
   * /api/*       -> JSON, the reusable API (also consumed by the page's charts).
@@ -29,7 +29,9 @@ from ntu_gym_tracker.closures import closures_between, closures_on
 from ntu_gym_tracker.config import VENUE_ID_BY_NAME
 from ntu_gym_tracker.hours import is_open, now_taipei, open_close
 
-_STATIC_DIR = Path(__file__).resolve().parent / "static"
+# Repo root: templates/ and static/ live there, next to (not inside) the package.
+_REPO = Path(__file__).resolve().parent.parent
+_STATIC_DIR = _REPO / "static"
 
 
 def _ui(request: Request) -> dict:
@@ -84,8 +86,8 @@ def _static_version() -> str:
 
 app = FastAPI(title="NTU Gym Tracker")
 
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory=_REPO / "templates")
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
 
 # --- JSON API --------------------------------------------------------------

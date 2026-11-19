@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Cron wrapper for daily_check.py: read new announcements on the official
+# Cron wrapper for `daily-check` (ntu_gym_tracker/daily_check.py): read new announcements on the official
 # site, register any closures, clean up data scraped on closure days, and
 # commit the result. Twice a day — before opening and after closing:
 #
@@ -18,4 +18,4 @@ export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 export LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONIOENCODING=utf-8
 
 mkdir -p logs
-.venv/bin/python daily_check.py >> logs/daily_check.log 2>&1
+.venv/bin/daily-check >> logs/daily_check.log 2>&1

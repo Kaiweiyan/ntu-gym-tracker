@@ -1,7 +1,7 @@
 """Daily automated closure check and data reconciliation — meant for cron.
 
-    .venv/bin/python daily_check.py             # check, reconcile, commit
-    .venv/bin/python daily_check.py --dry-run   # report only, change nothing
+    uv run daily-check             # check, reconcile, commit
+    uv run daily-check --dry-run   # report only, change nothing
 
 1. Announcements. The official homepage lists 新訊與公告, each with a stable
    id (`/news/?K=163`). Ids already handled live in
@@ -50,7 +50,7 @@ from ntu_gym_tracker.config import (
 from ntu_gym_tracker.hours import TAIPEI, now_taipei, open_close
 from ntu_gym_tracker.storage import CSV_FIELDS
 
-REPO = Path(__file__).resolve().parent
+REPO = Path(__file__).resolve().parent.parent  # repo root (this file is in the package)
 SEEN_PATH = REPO / "data" / "announcements_seen.json"
 DATA_FILES = ["data/closures.csv", "data/occupancy.csv", "data/announcements_seen.json"]
 

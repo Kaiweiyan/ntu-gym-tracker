@@ -2,8 +2,8 @@
 
 Two modes:
 
-    uv run collector.py            # always-on loop (default), for a 24/7 host
-    uv run collector.py --once     # a single cycle then exit, for cron (*/10)
+    uv run collector               # always-on loop (default), for a 24/7 host
+    uv run collector --once        # a single cycle then exit, for cron (*/10)
 
 `run_once()` skips closed hours (recording one count=0 marker at the open/close
 ticks) and never raises, so a scheduler/loop is not killed by an upstream outage.
