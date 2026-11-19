@@ -37,7 +37,7 @@
 - 瀏覽器分頁圖示改成藍色啞鈴（`static/favicon.svg`），不再是 emoji。
 - 文件：`docs/spec.md` 改用中文重寫，只描述現在的設計，最上面加上專案規則（每次實作前必讀）；
   `docs/plan.md` 從原本的規劃書改成記錄未定案提案；`CHANGELOG.md` 改用中文並移到 `docs/`；
-  新增 `docs/git-style.md`（commit 格式）與 `CLAUDE.md`。README 分成英文 `README.md` 與中文 `README.zh-TW.md`，
+  新增 `docs/git-style.md`（commit 格式）。README 分成英文 `README.md` 與中文 `README.zh-TW.md`，
   開頭互相連結。
 - **root 的四個 `.py` 搬進 `ntu_gym_tracker/` package**，命令列工具改用 `pyproject.toml` 的 `[project.scripts]`
   註冊（加上 hatchling build-system，讓 uv 以 editable 模式安裝本專案）。指令改為：

@@ -24,7 +24,7 @@
 | `docs/settings.md` | 可調整的設定、目前的數值、要改哪個檔案（速查表） |
 | `docs/git-style.md` | commit 訊息格式 |
 | `README.md` / `README.zh-TW.md` | 給外部讀者的使用說明（英文 / 中文，兩份開頭互相連結） |
-| `CLAUDE.md` | 給 Claude Code 的工作守則，每次對話自動載入（指向本檔） |
+| `CLAUDE.md` | 給 Claude Code 的工作守則，每次對話自動載入（指向本檔）；只放本機，列在 `.gitignore`，不進 git |
 
 ---
 

@@ -169,7 +169,6 @@ data/                 # occupancy.csv（資料本體）、closures.csv（休館�
                       # announcements_seen.json（daily-check 讀過的公告）
 docs/                 # spec.md（現在的設計 + 專案規則）、plan.md（未定案提案）、
                       # CHANGELOG.md（版本紀錄）、settings.md（設定速查）、git-style.md（commit 格式）
-CLAUDE.md             # 給 Claude Code 的工作守則（指向 docs/spec.md）
 ```
 
 三個命令列工具註冊在 `pyproject.toml` 的 `[project.scripts]`，`uv sync` 會把它們裝進 venv，

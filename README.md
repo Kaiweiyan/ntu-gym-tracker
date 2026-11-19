@@ -206,7 +206,6 @@ data/                 # occupancy.csv (the data store), closures.csv (closure ca
 docs/                 # 中文: spec.md (current design + project rules), plan.md (open proposals),
                       # CHANGELOG.md (release history), settings.md (settings overview),
                       # git-style.md (commit format)
-CLAUDE.md             # working rules for Claude Code (points to docs/spec.md)
 ```
 
 The three command-line tools are registered in `pyproject.toml` (`[project.scripts]`), so

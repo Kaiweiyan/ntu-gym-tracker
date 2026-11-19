@@ -16,3 +16,6 @@ logs/
 
 # VScode settings
 .vscode/
+
+# Claude Code working rules — local only, not shared
+CLAUDE.md
